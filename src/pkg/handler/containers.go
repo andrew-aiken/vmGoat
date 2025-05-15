@@ -54,9 +54,52 @@ func NewDockerContainer() (*DockerContainer, error) {
 	return &DockerContainer{client: cli}, nil
 }
 
+// PullImage pulls a Docker image with progress reporting
+func (d *DockerContainer) PullImage(ctx context.Context, image string) error {
+	log := logger.Get()
+	log.Info().Str("image", image).Msg("Pulling Docker image")
+
+	// Pull the image
+	reader, err := d.client.ImagePull(ctx, image, types.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to pull image: %v", err)
+	}
+	defer reader.Close()
+
+	// Read the pull progress
+	_, err = io.Copy(io.Discard, reader)
+	if err != nil {
+		return fmt.Errorf("error while pulling image: %v", err)
+	}
+
+	log.Info().Str("image", image).Msg("Successfully pulled Docker image")
+	return nil
+}
+
+// EnsureImageExists checks if the image exists locally and pulls it if necessary
+func (d *DockerContainer) EnsureImageExists(ctx context.Context, image string) error {
+	// Check if image exists locally
+	_, _, err := d.client.ImageInspectWithRaw(ctx, image)
+	if err == nil {
+		return nil // Image exists locally
+	}
+
+	if client.IsErrNotFound(err) {
+		// Image doesn't exist, pull it
+		return d.PullImage(ctx, image)
+	}
+
+	return fmt.Errorf("error checking image: %v", err)
+}
+
 // Launch starts a new container with the specified configuration
 func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) error {
 	log := logger.Get()
+
+	// Ensure the image exists
+	if err := d.EnsureImageExists(ctx, config.Image); err != nil {
+		return fmt.Errorf("failed to ensure image exists: %v", err)
+	}
 
 	// Convert volume mounts to Docker format
 	binds := make([]string, 0, len(config.Volumes))

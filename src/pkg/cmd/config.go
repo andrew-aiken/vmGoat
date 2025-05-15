@@ -9,7 +9,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"infrasec.sh/vmGoat/internal/handler"
+	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
 )
 

@@ -6,7 +6,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"infrasec.sh/vmGoat/internal/handler"
+	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
 )
 
@@ -51,6 +51,17 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	// TODO
 	// Actually deploy & configure the infrastructure
+
+	// err = handler.LaunchContainer(ctx, handler.ContainerConfig{
+	// 	Image:       "nginx",
+	// 	Environment: []string{"ENV=production"},
+	// 	Name:        "nginx-container",
+	// 	Ports:       map[string]string{"8080": "80"},
+	// })
+
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to launch container")
+	}
 
 	log.Info().Msgf("deployed infrastructure: %s", scenario)
 	return nil

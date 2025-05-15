@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"infrasec.sh/vmGoat/internal/types"
+	"infrasec.sh/vmGoat/pkg/types"
 )
 
 func ReadConfig(configPath string) (types.Config, error) {
