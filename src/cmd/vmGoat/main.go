@@ -59,10 +59,12 @@ func main() {
 			{
 				Name:    "purge",
 				Aliases: []string{"p"},
-				Usage:   "Delete all deployed infrastructure",
-				Action:  cmd.Destroy,
+				Usage:   "Destroys all deployed infrastructure",
+				Action:  cmd.Purge,
 				Flags: []cli.Flag{
 					flags.AutoApprove,
+					flags.AWSProfile,
+					flags.AWSRegion,
 				},
 			},
 			{

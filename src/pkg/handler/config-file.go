@@ -14,6 +14,8 @@ import (
 func InitializeConfig(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 	log := logger.Get()
 
+	ctx = context.WithValue(ctx, "debug", cmd.Root().Bool("debug"))
+
 	homeDirName, err := os.UserHomeDir()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get home directory")
@@ -54,6 +56,25 @@ func InitializeConfig(ctx context.Context, cmd *cli.Command) (context.Context, e
 		}
 	} else {
 		return ctx, fmt.Errorf("Error checking file '%s': %v", configFile, err)
+	}
+
+	stateDirectory := fmt.Sprintf("%s/state", configDirectory)
+
+	// Check if state directory exists
+	if stat, err := os.Stat(stateDirectory); err == nil {
+		if !stat.IsDir() {
+			return ctx, fmt.Errorf("file '%s' exists but is not a directory", stateDirectory)
+		}
+		log.Debug().Msgf("Directory '%s' exists", stateDirectory)
+		// If the file does not exist
+	} else if os.IsNotExist(err) {
+		log.Debug().Msgf("Directory '%s' does not exist", stateDirectory)
+		// Make the directories
+		if err := os.Mkdir(stateDirectory, 0755); err != nil {
+			return ctx, fmt.Errorf("Error creating directory '%s': %v", stateDirectory, err)
+		}
+	} else {
+		return ctx, fmt.Errorf("Error checking file '%s'", stateDirectory)
 	}
 
 	return ctx, nil

@@ -16,3 +16,10 @@ type Scenario struct {
 	Provider string `yaml:"provider"`
 	Path     string `yaml:"path"`
 }
+
+type ContainerOptions struct {
+	ConfigDir  string
+	HomeDir    string
+	AwsProfile string
+	AwsRegion  string
+}

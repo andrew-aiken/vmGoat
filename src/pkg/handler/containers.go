@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 
 	"infrasec.sh/vmGoat/pkg/logger"
 )
@@ -37,7 +37,9 @@ type ContainerConfig struct {
 	Args        []string
 	Environment []string
 	Name        string
-	Ports       map[string]string // hostPort:containerPort
+	// Ports       map[string]string // hostPort:containerPort
+	WorkingDir string // Working directory for the container
+	AutoRemove bool
 }
 
 // DockerContainer manages Docker container operations
@@ -111,32 +113,34 @@ func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) er
 		binds = append(binds, volumeStr)
 	}
 
-	// Convert port mappings
-	portBindings := nat.PortMap{}
-	exposedPorts := nat.PortSet{}
-	for hostPort, containerPort := range config.Ports {
-		port := nat.Port(containerPort)
-		exposedPorts[port] = struct{}{}
-		portBindings[port] = []nat.PortBinding{
-			{
-				HostIP:   "0.0.0.0",
-				HostPort: hostPort,
-			},
-		}
-	}
+	// // Convert port mappings
+	// portBindings := nat.PortMap{}
+	// exposedPorts := nat.PortSet{}
+	// for hostPort, containerPort := range config.Ports {
+	// 	port := nat.Port(containerPort)
+	// 	exposedPorts[port] = struct{}{}
+	// 	portBindings[port] = []nat.PortBinding{
+	// 		{
+	// 			HostIP:   "0.0.0.0",
+	// 			HostPort: hostPort,
+	// 		},
+	// 	}
+	// }
 
 	// Create container configuration
 	containerConfig := &container.Config{
-		Image:        config.Image,
-		Cmd:          config.Args,
-		Env:          config.Environment,
-		ExposedPorts: exposedPorts,
+		Image: config.Image,
+		Cmd:   config.Args,
+		Env:   config.Environment,
+		// ExposedPorts: exposedPorts,
+		WorkingDir: config.WorkingDir,
 	}
 
 	// Create host configuration
 	hostConfig := &container.HostConfig{
-		Binds:        binds,
-		PortBindings: portBindings,
+		Binds: binds,
+		// PortBindings: portBindings,
+		AutoRemove: config.AutoRemove,
 	}
 
 	// Create the container
@@ -183,7 +187,8 @@ func (d *DockerContainer) GetLogs(ctx context.Context, containerID string) (io.R
 	return d.client.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Follow:     false,
+		Follow:     true,
+		Timestamps: true,
 	})
 }
 
@@ -194,4 +199,92 @@ func LaunchContainer(ctx context.Context, config ContainerConfig) error {
 		return err
 	}
 	return docker.Launch(ctx, config)
+}
+
+// DeleteContainer is a helper function to delete a container by name
+func DeleteContainer(ctx context.Context, containerName string) error {
+	docker, err := NewDockerContainer()
+	if err != nil {
+		return err
+	}
+
+	// Get container ID by name
+	containers, err := docker.client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %v", err)
+	}
+
+	var containerID string
+	for _, container := range containers {
+		for _, name := range container.Names {
+			if name == "/"+containerName {
+				containerID = container.ID
+				break
+			}
+		}
+		if containerID != "" {
+			break
+		}
+	}
+
+	if containerID == "" {
+		return fmt.Errorf("container %s not found", containerName)
+	}
+
+	// Stop and remove the container
+	if err := docker.Stop(ctx, containerID); err != nil {
+		return fmt.Errorf("failed to stop container: %v", err)
+	}
+
+	return docker.Remove(ctx, containerID)
+}
+
+// GetContainerLogs is a helper function to get container logs by name
+func GetContainerLogs(ctx context.Context, containerName string) error {
+	// if zerolog.GlobalLevel() > zerolog.DebugLevel {
+	// 	return nil
+	// }
+
+	docker, err := NewDockerContainer()
+	if err != nil {
+		return err
+	}
+
+	// Get container ID by name
+	containers, err := docker.client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return fmt.Errorf("failed to list containers: %v", err)
+	}
+
+	var containerID string
+	for _, container := range containers {
+		for _, name := range container.Names {
+			if name == "/"+containerName {
+				containerID = container.ID
+				break
+			}
+		}
+		if containerID != "" {
+			break
+		}
+	}
+
+	if containerID == "" {
+		return fmt.Errorf("container %s not found", containerName)
+	}
+
+	// Get logs
+	logs, err := docker.GetLogs(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to get container logs: %v", err)
+	}
+	defer logs.Close()
+
+	// Stream logs to stdout
+	_, err = io.Copy(os.Stdout, logs)
+	if err != nil {
+		return fmt.Errorf("failed to stream container logs: %v", err)
+	}
+
+	return nil
 }
