@@ -46,10 +46,11 @@ func main() {
 				},
 			},
 			{
-				Name:    "destroy",
-				Aliases: []string{"d"},
-				Usage:   "Delete an existing deployment",
-				Action:  cmd.Destroy,
+				Name:      "destroy",
+				Aliases:   []string{"d"},
+				Usage:     "Delete an existing deployment",
+				UsageText: "vmgoat destroy [scenario] [args]",
+				Action:    cmd.Destroy,
 				Flags: []cli.Flag{
 					flags.AutoApprove,
 					flags.AWSProfile,

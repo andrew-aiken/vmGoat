@@ -92,10 +92,6 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	}
 	log.Debug().Msg("Removed scenarios from the config")
 
-	// 1. Get all the deployed scenarios
-	// a. Destroy the scenario
-	// b. Remove the scenario from the config
-
 	if err := LaunchInitContainer(ctx, containerOptions); err != nil {
 		return fmt.Errorf("failed to launch init container: %v", err)
 	}

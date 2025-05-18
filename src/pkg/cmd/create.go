@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 
 	"infrasec.sh/vmGoat/pkg/handler"
@@ -18,29 +19,11 @@ import (
 func Create(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
+	scenariosPath := "/Users/aaiken/Private/vmGoat/scenarios"
+
 	scenario := cli.Args().First()
-
-	invalidScenario := false
-
-	if scenario == "" {
-		log.Warn().Msg("Deployment name is required")
-		invalidScenario = true
-	}
-
-	scenariosDirs, _ := listScenarios("/Users/aaiken/Private/vmGoat/scenarios")
-
-	if !slices.Contains(scenariosDirs, scenario) {
-		invalidScenario = true
-	}
-
-	if invalidScenario {
-		log.Info().Msgf("Usage: %s\n", cli.UsageText)
-
-		log.Info().Msgf("Available scenarios:")
-
-		for _, s := range scenariosDirs {
-			log.Info().Msgf("  %s", s)
-		}
+	if !validateScenario(scenario, scenariosPath) {
+		log.Info().Msgf("\nUsage: %s", cli.UsageText)
 		return nil
 	}
 
@@ -343,4 +326,29 @@ func LaunchScenarioContainer(ctx context.Context, options types.ContainerOptions
 		return fmt.Errorf("Failed to get container logs: %s", err)
 	}
 	return nil
+}
+
+func validateScenario(scenario string, scenariosPath string) bool {
+	invalidScenario := false
+
+	if scenario == "" {
+		log.Warn().Msg("Deployment name is required")
+		invalidScenario = true
+	}
+
+	scenarios, _ := listScenarios(scenariosPath)
+
+	if !slices.Contains(scenarios, scenario) {
+		invalidScenario = true
+	}
+
+	if invalidScenario {
+		log.Info().Msgf("Available scenarios:")
+
+		for _, s := range scenarios {
+			log.Info().Msgf("  %s", s)
+		}
+		return false
+	}
+	return true
 }
