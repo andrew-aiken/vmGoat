@@ -23,10 +23,9 @@ var (
 	}
 
 	// AutoApprove defines the auto-approve flag
-	AutoApprove = &cli.StringFlag{
+	AutoApprove = &cli.BoolFlag{
 		Name:     "auto-approve",
 		Required: false,
-		Value:    "false",
 		OnlyOnce: true,
 		Usage:    "Automatically approve all actions without prompting",
 	}

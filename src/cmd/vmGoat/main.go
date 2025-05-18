@@ -37,7 +37,7 @@ func main() {
 				Name:      "create",
 				Aliases:   []string{"c"},
 				Usage:     "Create a new deployment",
-				UsageText: "vmgoat create [deployment] [args]",
+				UsageText: "vmgoat create [scenario] [args]",
 				Action:    cmd.Create,
 				Flags: []cli.Flag{
 					flags.AutoApprove,

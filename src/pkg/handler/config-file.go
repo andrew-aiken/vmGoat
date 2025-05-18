@@ -10,6 +10,9 @@ import (
 	"infrasec.sh/vmGoat/pkg/logger"
 )
 
+// TODO
+// Check if in a valid vmGoat file structure
+
 // Validate the existence of the configuration file
 func InitializeConfig(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 	log := logger.Get()
