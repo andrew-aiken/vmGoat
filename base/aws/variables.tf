@@ -9,3 +9,9 @@ variable "aws_profile" {
   default     = ""
   description = "description"
 }
+
+variable "allowlist" {
+  type        = list(string)
+  default     = []
+  description = "description"
+}

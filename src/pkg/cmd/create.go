@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -70,6 +71,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	// Actually deploy & configure the infrastructure
 
 	containerOptions := types.ContainerOptions{
+		Allowlist:  config.IpAddresses,
 		ConfigDir:  configDir,
 		HomeDir:    homeDir,
 		AwsProfile: awsProfile,
@@ -183,12 +185,21 @@ func LaunchBaseContainer(ctx context.Context, options types.ContainerOptions, cm
 
 	containerName := fmt.Sprintf("vmgoat-terraform-base-%s", cmd)
 
+	allowlistStrings := make([]string, len(options.Allowlist))
+	for i, ip := range options.Allowlist {
+		allowlistStrings[i] = fmt.Sprintf("\"%s\"", ip.String())
+	}
+	allowlistString := "[" + strings.Join(allowlistStrings, ", ") + "]"
+
+	log.Debug().Msgf("Allowlist: %s", allowlistString)
+
 	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
 		Image: "hashicorp/terraform:latest",
 		Name:  containerName,
 		Environment: []string{
 			"TF_VAR_aws_profile=" + options.AwsProfile,
 			"TF_VAR_aws_region=" + options.AwsRegion,
+			"TF_VAR_allowlist=" + allowlistString,
 		},
 		Args: []string{
 			cmd,

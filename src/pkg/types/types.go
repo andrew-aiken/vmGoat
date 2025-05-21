@@ -18,6 +18,7 @@ type Scenario struct {
 }
 
 type ContainerOptions struct {
+	Allowlist  []net.IP
 	ConfigDir  string
 	HomeDir    string
 	AwsProfile string
