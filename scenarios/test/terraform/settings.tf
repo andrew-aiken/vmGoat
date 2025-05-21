@@ -22,7 +22,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      scenario  = "base"
+      scenario  = "test"
       source    = "mvGoat"
       terraform = "true"
       url       = "github.com/XXX" # TODO: Update with your repo URL
