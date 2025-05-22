@@ -37,9 +37,9 @@ type ContainerConfig struct {
 	Args        []string
 	Environment []string
 	Name        string
-	// Ports       map[string]string // hostPort:containerPort
-	WorkingDir string // Working directory for the container
-	AutoRemove bool
+	WorkingDir  string // Working directory for the container
+	AutoRemove  bool
+	Entrypoint  []string // Optional entrypoint override
 }
 
 // DockerContainer manages Docker container operations
@@ -113,27 +113,13 @@ func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) er
 		binds = append(binds, volumeStr)
 	}
 
-	// // Convert port mappings
-	// portBindings := nat.PortMap{}
-	// exposedPorts := nat.PortSet{}
-	// for hostPort, containerPort := range config.Ports {
-	// 	port := nat.Port(containerPort)
-	// 	exposedPorts[port] = struct{}{}
-	// 	portBindings[port] = []nat.PortBinding{
-	// 		{
-	// 			HostIP:   "0.0.0.0",
-	// 			HostPort: hostPort,
-	// 		},
-	// 	}
-	// }
-
 	// Create container configuration
 	containerConfig := &container.Config{
-		Image: config.Image,
-		Cmd:   config.Args,
-		Env:   config.Environment,
-		// ExposedPorts: exposedPorts,
+		Image:      config.Image,
+		Cmd:        config.Args,
+		Env:        config.Environment,
 		WorkingDir: config.WorkingDir,
+		Entrypoint: config.Entrypoint,
 	}
 
 	// Create host configuration

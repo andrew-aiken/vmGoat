@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
@@ -162,8 +164,11 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	// Convert to string for replacement
 	tmpl := string(content)
 
+	serverIps := []string{}
+
 	// Replace variables in the template with values from tfstate
 	for key, output := range data.Outputs {
+		serverIps = append(serverIps, output.Value)
 		tmpl = strings.Replace(tmpl, key, output.Value, -1)
 	}
 
@@ -180,6 +185,15 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	if _, err := dst.Write([]byte(tmpl)); err != nil {
 		return fmt.Errorf("failed to write modified content: %v", err)
 	}
+
+	if err := WaitForSSH(serverIps, 60*time.Second); err != nil {
+		return fmt.Errorf("failed to wait for SSH: %v", err)
+	}
+
+	if err := AnsibleContainer(ctx, containerOptions, scenario, dstPath); err != nil {
+		return fmt.Errorf("failed to launch ansible container: %v", err)
+	}
+	log.Debug().Msg("Scenario configured with Ansible successfully")
 
 	log.Info().Msgf("deployed infrastructure: %s", scenario)
 	return nil
@@ -449,4 +463,117 @@ func validateScenario(scenario string, scenariosPath string) bool {
 		return false
 	}
 	return true
+}
+
+// AnsibleContainer runs the ansible playbook for the scenario
+func AnsibleContainer(ctx context.Context, options types.ContainerOptions, scenario string, inventoryPath string) error {
+	debug, _ := ctx.Value("debug").(bool)
+
+	containerName := fmt.Sprintf("vmgoat-ansible-%s", scenario)
+
+	// TODO: Have this be dynamic
+	path := "/Users/aaiken/Private/vmGoat/"
+
+	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
+		Image: "alpine/ansible:2.18.1",
+		Name:  containerName,
+		Entrypoint: []string{
+			"ansible-playbook",
+		},
+		Args: []string{
+			"playbook.yaml",
+		},
+		// Environment: []string{
+		// 	"TF_VAR_aws_profile=" + options.AwsProfile,
+		// },
+		WorkingDir: "/mnt/ansible",
+		Volumes: []handler.VolumeMount{
+			{
+				Source:      filepath.Join(path, "scenarios", scenario, "ansible"),
+				Destination: "/mnt/ansible",
+				ReadOnly:    true,
+			},
+			{
+				Source:      filepath.Join(path, "ansible.cfg"),
+				Destination: "/etc/ansible/ansible.cfg",
+				ReadOnly:    true,
+			},
+			{
+				Source:      inventoryPath,
+				Destination: "/mnt/inventory",
+				ReadOnly:    true,
+			},
+			{
+				Source:      filepath.Join(options.ConfigDir, "ssh"),
+				Destination: "/mnt/ssh",
+				ReadOnly:    true,
+			},
+		},
+		// If debug is enabled, the container will not be automatically removed
+		AutoRemove: !debug,
+	})
+
+	if err != nil {
+		return fmt.Errorf("Failed to launch container: %s", err)
+	}
+
+	// Get and print container logs
+	err = handler.GetContainerLogs(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("Failed to get container logs: %s", err)
+	}
+	return nil
+}
+
+// WaitForSSH waits for SSH connectivity to be available on all provided IP addresses
+func WaitForSSH(ips []string, timeout time.Duration) error {
+	// Create a channel to receive results from goroutines
+	type result struct {
+		ip    string
+		error error
+	}
+	results := make(chan result, len(ips))
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Launch a goroutine for each IP
+	for _, ip := range ips {
+		log.Debug().Msgf("Waiting for SSH on %s", ip)
+		go func(ip string) {
+			for {
+				select {
+				case <-ctx.Done():
+					results <- result{ip: ip, error: fmt.Errorf("timeout waiting for SSH on %s", ip)}
+					return
+				default:
+					// Try to establish TCP connection to port 22
+					conn, err := net.DialTimeout("tcp", ip+":22", 5*time.Second)
+					if err == nil {
+						conn.Close()
+						results <- result{ip: ip, error: nil}
+						return
+					}
+					// Wait a bit before trying again
+					time.Sleep(2 * time.Second)
+				}
+			}
+		}(ip)
+	}
+
+	// Collect results
+	var errors []string
+	for i := 0; i < len(ips); i++ {
+		result := <-results
+		if result.error != nil {
+			errors = append(errors, result.error.Error())
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to connect to some IPs: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }
