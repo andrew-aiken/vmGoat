@@ -1,0 +1,10 @@
+---
+- name: Set hostname
+  hosts: main
+  become: true
+  tasks:
+    - name: Set a hostname
+      ansible.builtin.hostname:
+        name: test-hostname
+      tags:
+        - hostname

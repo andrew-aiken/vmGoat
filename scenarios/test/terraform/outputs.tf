@@ -1,0 +1,5 @@
+output "host_main" {
+  value       = aws_instance.this.public_ip
+  sensitive   = true
+  description = "The public IP address of the instance"
+}

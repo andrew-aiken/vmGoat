@@ -3,10 +3,10 @@ resource "aws_instance" "this" {
   instance_type = "t3.small"
   subnet_id     = data.aws_subnets.public.ids[0]
 
-  # key_name 
+  key_name = "vmGoat"
 
   metadata_options {
-    http_endpoint          = "disabled"
+    http_endpoint          = "enabled"
     instance_metadata_tags = "disabled"
   }
 

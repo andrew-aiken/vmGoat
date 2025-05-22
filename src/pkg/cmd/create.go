@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,9 +69,6 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msg("Config updated successfully")
 
-	// TODO
-	// Actually deploy & configure the infrastructure
-
 	containerOptions := types.ContainerOptions{
 		Allowlist:  config.IpAddresses,
 		ConfigDir:  configDir,
@@ -110,11 +109,94 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	}
 	log.Debug().Msg("Config updated successfully with scenario")
 
-	// TODO
 	// Ansible
+	statePath := filepath.Join(configDir, "state", "scenario", scenario, "scenario.tfstate")
+
+	file, err := os.Open(statePath)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	// Parse the raw structure into a map
+	var data struct {
+		Outputs map[string]Output `json:"outputs"`
+	}
+
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&data); err != nil {
+		panic(err)
+	}
+
+	// // Loop through keys and print them
+	// for key, output := range data.Outputs {
+	// 	fmt.Printf("Key: %s, Value: %s\n", key, output.Value)
+	// }
+
+	// Create a temporary directory for Ansible files
+	tmpDir, err := os.MkdirTemp("", "vmgoat-ansible-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	log.Debug().Msgf("Temporary directory created: %s", tmpDir)
+
+	// Copy inventory template to temp directory
+	srcPath := filepath.Join(scenariosPath, scenario, "ansible", "inventory.tmpl")
+	dstPath := filepath.Join(tmpDir, "inventory")
+
+	// Copy the file using io.Copy
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %v", err)
+	}
+	defer src.Close()
+
+	// Read the entire file content
+	content, err := io.ReadAll(src)
+	if err != nil {
+		return fmt.Errorf("failed to read source file: %v", err)
+	}
+
+	// Convert to string for replacement
+	tmpl := string(content)
+
+	// Replace variables in the template with values from tfstate
+	for key, output := range data.Outputs {
+		tmpl = strings.Replace(tmpl, key, output.Value, -1)
+	}
+
+	log.Debug().Msgf("Modified content: %s", tmpl)
+
+	// Create the destination file
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %v", err)
+	}
+	defer dst.Close()
+
+	// Write the modified content to the destination file
+	if _, err := dst.Write([]byte(tmpl)); err != nil {
+		return fmt.Errorf("failed to write modified content: %v", err)
+	}
 
 	log.Info().Msgf("deployed infrastructure: %s", scenario)
 	return nil
+}
+
+type Output struct {
+	Value     string `json:"value"`
+	Type      string `json:"type"`
+	Sensitive bool   `json:"sensitive"`
+}
+
+type Outputs struct {
+	Main Output `json:"main"`
+}
+
+type Data struct {
+	Outputs Outputs `json:"outputs"`
 }
 
 // listScenarios lists all the scenarios in the scenarios directory
@@ -222,6 +304,11 @@ func LaunchBaseContainer(ctx context.Context, options types.ContainerOptions, cm
 			{
 				Source:      filepath.Join(options.ConfigDir, "state"),
 				Destination: "/mnt/state",
+				ReadOnly:    false,
+			},
+			{
+				Source:      filepath.Join(options.ConfigDir, "ssh"),
+				Destination: "/mnt/ssh",
 				ReadOnly:    false,
 			},
 		},
