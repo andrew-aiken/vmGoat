@@ -1,0 +1,414 @@
+- name: Setup gitea gitea user
+  become: true
+  become_user: gitea
+  ansible.builtin.command:
+    cmd: gitea admin user create --username {{ gitea_username }} --password {{ gitea_password }} --admin --config /etc/gitea/gitea.ini --email {{ gitea_username }}@gitoops.thm --must-change-password=false
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: POST request to create an organization
+  ansible.builtin.uri:
+    url: http://localhost:3000/api/v1/orgs
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      description: "string"
+      username: "{{ gitea_org_name }}"
+      visibility: "public"
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create a new team for cicd
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/teams"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      can_create_org_repo: false
+      description: "Group for automated gitops tooling"
+      includes_all_repositories: true
+      name: "Services"
+      permission: "read"
+      units: [
+        "repo.code",
+        "repo.pulls"
+      ]
+      units_map: {
+        "repo.code": "read",
+        "repo.pulls": "write"
+      }
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Get Services team id
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/teams/search?q=Services"
+    method: GET
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    return_content: true
+    status_code: 200
+  register: gitea_services_team
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create a new team for users
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/teams"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      can_create_org_repo: false
+      description: "Group {{ gitea_org_name }}"
+      includes_all_repositories: true
+      name: "Users"
+      permission: "read"
+      units: [
+        "repo.code",
+        "repo.pulls"
+      ]
+      units_map: {
+        "repo.code": "write",
+        "repo.pulls": "read"
+      }
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Get users team id
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/teams/search?q=Users"
+    method: GET
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    return_content: true
+    status_code: 200
+  register: gitea_user_team
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create public repository
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/repos"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      auto_init: false
+      default_branch: "main"
+      description: "Public repository"
+      name: "public"
+      private: false
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create private repository
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/orgs/{{ gitea_org_name }}/repos"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      auto_init: false
+      default_branch: "main"
+      description: "Private repository"
+      name: "private"
+      private: true
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create atlantis user
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/admin/users"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      email: "atlantis@gitoops.thm"
+      full_name: "{{ gitea_atlantis_username }}"
+      login_name: "{{ gitea_atlantis_username }}"
+      must_change_password: false
+      password: "Ungu3s5abl3D3f@u1tAltn@t!sP@ss0ord"
+      username: "{{ gitea_atlantis_username }}"
+      visibility: "private"
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Add atlantis user to organization
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/teams/{{ gitea_services_team['json']['data'].0['id'] }}/members/{{ gitea_atlantis_username }}"
+    method: PUT
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    return_content: true
+    status_code: 204
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Create user gitea user
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/admin/users"
+    method: POST
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      email: "{{ gitea_user_username }}@gitoops.thm"
+      full_name: "{{ gitea_user_username }}"
+      login_name: "{{ gitea_user_username }}"
+      must_change_password: false
+      password: "{{ gitea_user_password }}"
+      username: "{{ gitea_user_username }}"
+      visibility: "public"
+    body_format: json
+    return_content: true
+    status_code: 201
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Add user user to organization
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/teams/{{ gitea_user_team['json']['data'].0['id'] }}/members/{{ gitea_user_username }}"
+    method: PUT
+    url_username: "{{ gitea_username }}"
+    url_password: "{{ gitea_password }}"
+    force_basic_auth: true
+    return_content: true
+    status_code: 204
+  tags:
+    - gitea
+    - gitea_oneoffs
+
+- name: Commit terraform.tfstate file
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/terraform.tfstate"
+    method: POST
+    url_username: "{{ gitea_user_username }}"
+    url_password: "{{ gitea_user_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      author: {
+        email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+        name: "{{ gitea_user_username }}"
+      }
+      committer: {
+        email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+        name: "{{ gitea_user_username }}"
+      }
+      content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/tmp-tfstate') | b64encode }}"
+    body_format: json
+    return_content: true
+    status_code: 201
+  vars:
+    gitea_repo: public
+  tags:
+    - gitea
+    - gitea_oneoffs
+    - gitea_files
+
+- name: Create public files
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/{{ item }}"
+    method: POST
+    url_username: "{{ gitea_user_username }}"
+    url_password: "{{ gitea_user_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      author: {
+        email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+        name: "{{ gitea_user_username }}"
+      }
+      committer: {
+        email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+        name: "{{ gitea_user_username }}"
+      }
+      content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/{{ item }}') | b64encode }}"
+    body_format: json
+    return_content: true
+    status_code: 201
+  vars:
+    gitea_repo: public
+  with_items:
+    - data.tf
+    - ec2.tf
+    - main.tf
+    - settings.tf
+    - variables.tf
+  tags:
+    - gitea
+    - gitea_oneoffs
+    - gitea_files
+
+- name: Create private files
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/{{ item }}"
+    method: POST
+    url_username: "{{ gitea_user_username }}"
+    url_password: "{{ gitea_user_password }}"
+    force_basic_auth: true
+    headers:
+      Content-Type: "application/json"
+    body:
+      content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/{{ item }}') | b64encode }}"
+    body_format: json
+    return_content: true
+    status_code: 201
+  vars:
+    gitea_repo: private
+  with_items:
+    - README.md
+  tags:
+    - gitea
+    - gitea_oneoffs
+    - gitea_files
+
+- name: Remove tfstate file
+  block:
+    - name: Get SHA of the tfstate file
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/{{ file_path }}"
+        url_username: "{{ gitea_user_username }}"
+        url_password: "{{ gitea_user_password }}"
+        force_basic_auth: true
+        method: GET
+        return_content: true
+        status_code: 200
+      register: get_file
+      vars:
+        file_path: terraform.tfstate
+        gitea_repo: public
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
+    - name: Delete terraform state file
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/{{ file_path }}"
+        url_username: "{{ gitea_user_username }}"
+        url_password: "{{ gitea_user_password }}"
+        force_basic_auth: true
+        method: DELETE
+        body_format: json
+        headers:
+          Content-Type: "application/json"
+        body:
+          message: "Move state to S3"
+          sha: "{{ (get_file.json.sha) }}"
+        status_code: 200
+      vars:
+        file_path: terraform.tfstate
+        gitea_repo: public
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
+- name: Update settings.tf
+  block:
+    - name: Get SHA of the old settings.tf file
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/{{ file_path }}"
+        url_username: "{{ gitea_user_username }}"
+        url_password: "{{ gitea_user_password }}"
+        force_basic_auth: true
+        method: GET
+        return_content: true
+        status_code: 200
+      register: settings_file_sha
+      vars:
+        file_path: settings.tf
+        gitea_repo: public
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
+    - name: Commit updated settings.tf file
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/settings.tf"
+        method: PUT
+        url_username: "{{ gitea_user_username }}"
+        url_password: "{{ gitea_user_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body:
+          author: {
+            email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+            name: "{{ gitea_user_username }}"
+          }
+          committer: {
+            email: "{{ gitea_user_username }}@{{ gitea_domain }}",
+            name: "{{ gitea_user_username }}"
+          }
+          content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/settings.tf.txt') | b64encode }}"
+          message: "Update backend to use S3"
+          sha: "{{ (settings_file_sha.json.sha) }}"
+        body_format: json
+        return_content: true
+        status_code: 200
+      vars:
+        gitea_repo: public
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files

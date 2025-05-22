@@ -1,0 +1,103 @@
+# https://developer.hashicorp.com/terraform/install
+- name: Download and add HashiCorp GPG key
+  ansible.builtin.apt_key:
+    url: https://apt.releases.hashicorp.com/gpg
+    state: present
+    keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  tags:
+    - atlantis
+    - terraform
+
+- name: Add HashiCorp repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+    state: present
+    filename: "hashicorp"
+  tags:
+    - atlantis
+    - terraform
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  tags:
+    - atlantis
+    - terraform
+
+- name: Install Terraform & Unzip
+  ansible.builtin.apt:
+    name:
+      - terraform
+      - unzip
+    state: present
+  tags:
+    - atlantis
+    - terraform
+
+- name: Download Atlantis zip
+  ansible.builtin.get_url:
+    url: "{{ atlantis_zip_url }}"
+    dest: "/tmp/atlantis_linux_amd64.zip"
+    mode: '0600'
+  tags:
+    - atlantis
+
+- name: Unzip Atlantis binary
+  ansible.builtin.unarchive:
+    src: "/tmp/atlantis_linux_amd64.zip"
+    dest: "{{ atlantis_binary_dest_dir }}"
+    remote_src: true
+  tags:
+    - atlantis
+
+- name: Ensure Atlantis binary is executable
+  ansible.builtin.file:
+    path: "{{ atlantis_binary_dest_dir }}/atlantis"
+    mode: '0755'
+  tags:
+    - atlantis
+
+- name: Create systemd service file for Atlantis
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/{{ atlantis_service_name }}.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Atlantis Service
+      After=network.target
+
+      [Service]
+      ExecStart={{ atlantis_binary_dest_dir }}/atlantis server \
+        --atlantis-url=http://atlantis.{{ gitea_domain }} \
+        --gitea-base-url=http \
+        --gitea-base-url=https://{{ gitea_domain }} \
+        --gitea-user={{ gitea_atlantis_username }} \
+        --gitea-token={{ atlantis_gitea_access_token['json']['sha1'] }} \
+        --gitea-webhook-secret={{ atlantis_webhook_secret }} \
+        --gitea-page-size=30 \
+        --repo-allowlist={{ atlantis_repo_allowlist }} \
+        --repo-config=/opt/atlantis/repo.yaml
+      Environment="ATLANTIS_ALLOW_FORK_PRS=true"
+      Restart=always
+      RestartSec=5s
+      User=root
+      Group=nogroup
+
+      [Install]
+      WantedBy=multi-user.target
+  tags:
+    - atlantis
+
+- name: Reload systemd to pick up new service
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - atlantis
+
+- name: Enable and start Atlantis service
+  ansible.builtin.systemd:
+    name: "{{ atlantis_service_name }}"
+    enabled: true
+    state: started
+  tags:
+    - atlantis

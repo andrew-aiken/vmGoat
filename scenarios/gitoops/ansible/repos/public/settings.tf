@@ -1,0 +1,29 @@
+terraform {
+  required_version = "1.11.4"
+
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "5.94.1"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "4.0.6"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      project   = "gitoops"
+      terraform = "true"
+    }
+  }
+}

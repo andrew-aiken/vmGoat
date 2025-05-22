@@ -1,0 +1,116 @@
+- name: Create atlantis directory
+  ansible.builtin.file:
+    path: "/opt/atlantis"
+    state: directory
+    mode: '0755'
+    owner: "root"
+    group: "root"
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Create atlantis repo config
+  ansible.builtin.copy:
+    dest: /opt/atlantis/repo.yaml
+    mode: '0644'
+    content: |
+      workflows:
+        default:
+          plan:
+            steps:
+              - init:
+                  extra_args: ["-plugin-dir=/opt/atlantis/plugin-cache"]
+              - plan
+          apply:
+            steps:
+              - apply
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Create atlantis terraform plugin cache directory
+  ansible.builtin.file:
+    path: "/opt/atlantis/plugin-cache"
+    state: directory
+    mode: '0755'
+    owner: "root"
+    group: "root"
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Create temp directory for tf providers
+  ansible.builtin.file:
+    path: "/tmp/terraform-providers"
+    state: directory
+    mode: '0700'
+    owner: "root"
+    group: "root"
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Create terraform required providers
+  ansible.builtin.copy:
+    dest: /tmp/terraform-providers/providers.tf
+    mode: '0600'
+    content: |
+      terraform {
+        required_providers {
+          aws = {
+            source  = "hashicorp/aws"
+            version = "4.50.0"
+          }
+          external = {
+            source = "hashicorp/external"
+            version = "2.3.3"
+          }
+          http = {
+            source = "hashicorp/http"
+            version = "3.4.3"
+          }
+          local = {
+            source = "hashicorp/local"
+            version = "2.5.1"
+          }
+          null = {
+            source = "hashicorp/null"
+            version = "3.2.2"
+          }
+          random = {
+            source = "hashicorp/random"
+            version = "3.6.2"
+          }
+        }
+      }
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Terraform init
+  ansible.builtin.command:
+    cmd: terraform init
+    chdir: /tmp/terraform-providers/
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Copy terraform plugins to cache
+  ansible.builtin.copy:
+    src: "/tmp/terraform-providers/.terraform/providers/"
+    dest: "/opt/atlantis/plugin-cache/"
+    owner: root
+    group: root
+    mode: '0655'
+    remote_src: true
+  tags:
+    - atlantis
+    - terraform_plugins
+
+- name: Recursively remove tmp tf providers directory
+  ansible.builtin.file:
+    path: /tmp/terraform-providers
+    state: absent
+  tags:
+    - atlantis
+    - terraform_plugins

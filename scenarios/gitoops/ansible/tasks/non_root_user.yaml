@@ -1,0 +1,68 @@
+- name: Ensure the user exists
+  ansible.builtin.user:
+    name: "{{ linux_username }}"
+    state: present
+    create_home: true
+    shell: /bin/bash
+  tags:
+    - gitea
+    - non_root_user
+
+- name: Create .ssh directory
+  ansible.builtin.file:
+    path: "/home/{{ linux_username }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+  tags:
+    - gitea
+    - non_root_user
+
+- name: Ensure the authorized_keys file exists
+  ansible.builtin.file:
+    path: "/home/{{ linux_username }}/.ssh/authorized_keys"
+    state: touch
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+    mode: '0600'
+  tags:
+    - gitea
+    - non_root_user
+
+- name: Add generated SSH public key to authorized_keys
+  ansible.builtin.copy:
+    src: "templates/id_rsa.pub"
+    dest: "/home/{{ linux_username }}/.ssh/authorized_keys"
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+    mode: '0600'
+  tags:
+    - gitea
+    - non_root_user
+
+- name: Copy private key into alexis home dir
+  ansible.builtin.copy:
+    src: "templates/id_rsa"
+    dest: "/home/{{ linux_username }}/.ssh/id_rsa"
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+    mode: '0600'
+
+- name: Copy public key into alexis home dir
+  ansible.builtin.copy:
+    src: "templates/id_rsa.pub"
+    dest: "/home/{{ linux_username }}/.ssh/id_rsa.pub"
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+    mode: '0600'
+
+- name: Create user flag
+  ansible.builtin.copy:
+    dest: "/home/{{ linux_username }}/flag.txt"
+    mode: '0400'
+    owner: "{{ linux_username }}"
+    group: "{{ linux_username }}"
+    content: "{{ 'THM{' + user_flag + '}' }}"
+  tags:
+    - non_root_user

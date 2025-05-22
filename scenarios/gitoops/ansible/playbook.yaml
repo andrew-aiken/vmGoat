@@ -1,0 +1,371 @@
+---
+- name: Setup GitOops
+  hosts: main
+  become: true
+  vars:
+    atlantis_zip_url: "https://github.com/runatlantis/atlantis/releases/download/v0.28.1/atlantis_linux_amd64.zip"
+    atlantis_binary_dest_dir: "/usr/local/bin"
+    atlantis_service_name: "atlantis"
+    atlantis_webhook_secret: "82df5474-2933-11ef-9454-0242ac120002"
+    atlantis_repo_allowlist: "gitoops.thm/gitCorp/private"
+    gitea_domain: gitoops.thm
+    gitea_atlantis_username: atlantis
+    gitea_user_username: alexis
+    gitea_user_password: Ungu3s5abl3D3f@u1tAltn@t!sP@ss0ordNuwb3r2
+    gitea_org_name: gitCorp
+    gitea_username: gitea
+    gitea_password: giteaP@sswordUs3dF0rIn!tialS3tup
+    gitea_fqdn: 'gitoops.thm'
+    gitea_root_url: 'https://gitoops.thm'
+    gitea_protocol: http
+    gitea_start_ssh: true
+    gitea_http_listen: 127.0.0.1
+    gitea_http_port: 3000
+    gitea_ssh_port: 2222
+    gitea_db_password: aranr0va943arva09j
+    gitea_disable_registration: true
+    gitea_theme_default: gitea-auto
+    gitea_themes: gitea-auto
+    gitea_require_signin: false
+    gitea_extra_config: |
+      [webhook]
+      ALLOWED_HOST_LIST = atlantis.gitoops.thm
+    ssl_cert_path: /etc/nginx/ssl/nginx-selfsigned.crt
+    ssl_key_path: /etc/nginx/ssl/nginx-selfsigned.key
+    ssl_dhparam_path: /etc/nginx/ssl/dhparam.pem
+  roles:
+    - {role: l3d.git.gitea, tags: forgejo}
+  tasks:
+    - name: Make users passwordless for sudo in group wheel
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^%sudo'
+        line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+      ignore_errors: true
+
+    # I think this is because I stopped the update process during ubuntu install
+    - name: Remove weird cdrom repo from apt source
+      ansible.builtin.apt_repository:
+        repo: "deb [check-date=no] file:///cdrom focal main restricted"
+        state: absent
+
+    - name: Update APT packages
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Uninstall a list of packages
+      ansible.builtin.apt:
+        state: absent
+        pkg:
+          - nano
+          - ntfs-3g
+          - tcpdump
+          - telnet
+          - ufw
+          - jq
+
+    - name: Update all packages to their latest version
+      ansible.builtin.apt:
+        name: "*"
+        state: latest
+
+    - name: Cleanup unused packages
+      ansible.builtin.apt:
+        autoremove: true
+        purge: true
+
+    - name: Update hosts file
+      ansible.builtin.lineinfile:
+        dest: /etc/hosts
+        line: "127.0.0.1 {{ item }}"
+        state: present
+      with_items:
+        - gitoops.thm
+        - atlantis.gitoops.thm
+      tags:
+        - dns
+
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+      tags:
+        - nginx
+
+    - name: Create SSL directory
+      ansible.builtin.file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: '0755'
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Create private key (RSA, 4096 bits)
+      community.crypto.openssl_privatekey:
+        path: "{{ ssl_key_path }}"
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Create certificate signing request (CSR) for self-signed certificate
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ ssl_key_path }}"
+        common_name: "{{ gitea_fqdn }}"
+        subject_alt_name:
+          - "DNS:{{ gitea_fqdn }}"
+          - "DNS:*.{{ gitea_fqdn }}"
+      register: csr
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Create self-signed certificate from CSR
+      community.crypto.x509_certificate:
+        path: "{{ ssl_cert_path }}"
+        csr_content: "{{ csr.csr }}"
+        privatekey_path: "{{ ssl_key_path }}"
+        provider: selfsigned
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Copy selfsiged cert to trusted dir
+      ansible.builtin.copy:
+        src: "{{ ssl_cert_path }}"
+        dest: "/usr/local/share/ca-certificates/"
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: true
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Trust selfsigned cert
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      tags:
+        - atlantis
+        - nginx
+
+    - name: Generate Diffie-Hellman parameters
+      community.crypto.openssl_dhparam:
+        path: "{{ ssl_dhparam_path }}"
+        size: 2048
+      tags:
+        - nginx
+
+    - name: Create Nginx configuration for reverse proxy
+      ansible.builtin.template:
+        src: nginx-reverse-proxy.conf.j2
+        dest: /etc/nginx/sites-available/reverse-proxy
+        mode: '0644'
+      tags:
+        - nginx
+
+    - name: Enable the reverse proxy configuration
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/reverse-proxy
+        dest: /etc/nginx/sites-enabled/reverse-proxy
+        state: link
+      tags:
+        - nginx
+
+    - name: Remove default Nginx configuration
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      tags:
+        - nginx
+
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      tags:
+        - nginx
+
+    - name: Import flags
+      ansible.builtin.include_vars: flags.yaml
+
+    - name: Create Linux non-root user
+      ansible.builtin.include_tasks:
+        file: tasks/non_root_user.yaml
+      vars:
+        linux_username: "{{ gitea_user_username }}"
+      tags:
+        - gitea
+        - non_root_user
+
+    - name: Apply Gitea oneoff tasks
+      ansible.builtin.include_tasks:
+        file: tasks/gitea_oneoffs.yaml
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
+    # https://docs.gitea.com/development/api-usage#generating-and-listing-api-tokens
+    - name: Create access token
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/users/{{ gitea_atlantis_username }}/tokens"
+        method: POST
+        url_username: "{{ gitea_username }}"
+        url_password: "{{ gitea_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "name": "apitoken",
+            "scopes": [
+              "write:issue",
+              "write:repository",
+              "read:user"
+            ]
+          }
+        body_format: json
+        return_content: true
+        status_code: 201
+      register: atlantis_gitea_access_token
+
+    - name: Debug token
+      ansible.builtin.debug:
+        msg: "{{ atlantis_gitea_access_token['json']['sha1'] }}"
+
+    - name: Apply Atlantis tasks
+      ansible.builtin.include_tasks:
+        file: tasks/atlantis.yaml
+      tags:
+        - atlantis
+
+    - name: Terraform plugin cache
+      ansible.builtin.include_tasks:
+        file: tasks/terraform_plugins.yaml
+      tags:
+        - atlantis
+        - terraform_plugins
+
+    - name: Ensure iptables-persistent is installed
+      ansible.builtin.package:
+        name: iptables-persistent
+        state: present
+      tags:
+        - atlantis
+        - iptables
+
+    - name: Allow localhost access to port 4141
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: 4141
+        source: 127.0.0.1
+        jump: ACCEPT
+      tags:
+        - atlantis
+        - iptables
+
+    - name: Block external incoming connections on port 4141
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: 4141
+        jump: DROP
+      tags:
+        - atlantis
+        - iptables
+
+    - name: Save iptables rules
+      ansible.builtin.shell: iptables-save > /etc/iptables/rules.v4
+      tags:
+        - atlantis
+        - iptables
+
+    - name: Create repository webhook
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/private/hooks"
+        method: POST
+        url_username: "{{ gitea_username }}"
+        url_password: "{{ gitea_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "type": "gitea",
+            "branch_filter": "*",
+            "config": {
+              "content_type": "json",
+              "http_method": "post",
+              "secret": "{{ atlantis_webhook_secret }}",
+              "url": "https://atlantis.{{ gitea_domain }}/events"
+            },
+            "events": [
+              "push",
+              "issue_comment",
+              "pull_request",
+              "pull_request_comment",
+              "pull_request_review_approved",
+              "pull_request_review_rejected",
+              "pull_request_review_comment",
+              "pull_request_sync"
+            ],
+            "active": true
+          }
+        body_format: json
+        return_content: true
+        status_code: 201
+      register: atlantis_gitea_webhook
+      tags:
+        - atlantis
+        - gitea
+
+    - name: Create gitea user key
+      ansible.builtin.uri:
+        url: "http://localhost:3000/api/v1/user/keys"
+        method: POST
+        url_username: "{{ gitea_user_username }}"
+        url_password: "{{ gitea_user_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "key": "{{ lookup('ansible.builtin.file', 'templates/id_rsa.pub') }}",
+            "read_only": false,
+            "title": "{{ gitea_user_username }}"
+          }
+        body_format: json
+        return_content: true
+        status_code: 201
+      tags:
+        - gitea
+        - non_root_user
+
+    - name: Create root flag
+      ansible.builtin.copy:
+        dest: "/root/flag.txt"
+        mode: '0400'
+        owner: root
+        group: root
+        content: "{{ 'THM{' + root_flag + '}' }}"
+
+    - name: Create root readme
+      ansible.builtin.copy:
+        src: "templates/readme"
+        dest: "/root/readme"
+        owner: root
+        group: root
+        mode: '0600'
+
+# TODO: Figure out a way to install python modules on the ansible container
+    - name: Change user password
+      ansible.builtin.user:
+        name: ubuntu
+        update_password: always
+        password: "{{ 'M0reS3cureUbuntuPas5w0rd$inceItsH@rdT0Typ3Dur!ngInst@1l' | password_hash('sha512') }}"
+      ignore_errors: true

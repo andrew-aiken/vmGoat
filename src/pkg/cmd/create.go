@@ -168,7 +168,9 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	// Replace variables in the template with values from tfstate
 	for key, output := range data.Outputs {
-		serverIps = append(serverIps, output.Value)
+		if strings.HasPrefix(key, "host_") {
+			serverIps = append(serverIps, output.Value)
+		}
 		tmpl = strings.Replace(tmpl, key, output.Value, -1)
 	}
 
@@ -196,6 +198,8 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	log.Debug().Msg("Scenario configured with Ansible successfully")
 
 	log.Info().Msgf("deployed infrastructure: %s", scenario)
+
+	log.Info().Msgf("Entrypoint:\n%s", data.Outputs["entrypoint"].Value)
 	return nil
 }
 
@@ -478,10 +482,11 @@ func AnsibleContainer(ctx context.Context, options types.ContainerOptions, scena
 		Image: "alpine/ansible:2.18.1",
 		Name:  containerName,
 		Entrypoint: []string{
-			"ansible-playbook",
+			"sh",
+			"-c",
 		},
 		Args: []string{
-			"playbook.yaml",
+			"ansible-galaxy install -r requirements.yaml && ansible-playbook playbook.yaml",
 		},
 		// Environment: []string{
 		// 	"TF_VAR_aws_profile=" + options.AwsProfile,
