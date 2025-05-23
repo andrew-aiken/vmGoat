@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/fatih/color"
 	"github.com/urfave/cli/v3"
+	"gopkg.in/yaml.v3"
 
 	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
@@ -110,5 +112,28 @@ func ConfigAllowlist(ctx context.Context, cli *cli.Command) error {
 	}
 
 	log.Info().Msg("Allowlist config successfully updated")
+	return nil
+}
+
+func ConfigView(ctx context.Context, cli *cli.Command) error {
+	log := logger.Get()
+
+	// Read the config directory from the context.
+	// This should be under the home directory of the user. (`~/.config/vmgoat`)
+	configDir, _ := ctx.Value("configDirectory").(string)
+
+	config, err := handler.ReadConfig(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+
+	yamlConfig, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %v", err)
+	}
+
+	log.Info().Msg("Current configuration:\n")
+	color.RGB(211, 211, 211).Println(string(yamlConfig))
+
 	return nil
 }

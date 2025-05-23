@@ -58,6 +58,15 @@ func main() {
 				},
 			},
 			{
+				Name:    "list",
+				Aliases: []string{"p"},
+				Usage:   "List all scenarios",
+				Action:  cmd.List,
+				Flags: []cli.Flag{
+					flags.DeployedScenarios,
+				},
+			},
+			{
 				Name:    "purge",
 				Aliases: []string{"p"},
 				Usage:   "Destroys all deployed infrastructure",
@@ -88,6 +97,13 @@ func main() {
 						UsageText:   "vmgoat config allowlist [ip1] [ip2] [Nth]",
 						Description: "Will automatically pull your public IP address and write it to the config file.\nAddresses can be specified as arguments to alow access from multiples IPs.",
 						Action:      cmd.ConfigAllowlist,
+					},
+					{
+						Name:      "view",
+						Usage:     "Printouts out the current config",
+						UsageText: "vmgoat config view",
+						// Description: "",
+						Action: cmd.ConfigView,
 					},
 				},
 			},

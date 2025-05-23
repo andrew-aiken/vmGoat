@@ -69,7 +69,6 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 		AwsRegion:  awsRegion,
 	}
 
-	// TODO
 	for _, s := range listDeployedScenarios(config) {
 		log.Info().Msgf("Destroying Scenario: %s", s)
 		// Initialize the scenarios init container

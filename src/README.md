@@ -10,8 +10,5 @@ https://github.com/apenella/go-ansible
 
 
 
-
-- List command to show all scenarios
-- View the config
 - Proxy to deploy to private instance
   - NAT Gateway probably required

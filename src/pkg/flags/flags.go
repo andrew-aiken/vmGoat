@@ -54,4 +54,12 @@ var (
 		OnlyOnce: true,
 		Usage:    "Display debug information",
 	}
+
+	// DeployedScenarios defines if only the deployed scenarios should be listed
+	DeployedScenarios = &cli.BoolFlag{
+		Name:     "deployed",
+		Required: false,
+		OnlyOnce: true,
+		Usage:    "Displays only deployed scenarios",
+	}
 )
