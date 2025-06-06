@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/urfave/cli/v3"
 	"infrasec.sh/vmGoat/pkg/handler"
@@ -17,6 +18,8 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 
 	approve := cli.Bool("auto-approve")
 	var approveInput string
+
+	// TODO: list all deployed scenarios
 
 	if approve == false {
 		log.Debug().Msg("Prompting for purge approval")
@@ -47,6 +50,7 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 
 	awsProfile := cli.String("aws-profile")
 	awsRegion := cli.String("aws-region")
+	containerized := cli.Bool("containerized")
 
 	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
 		return fmt.Errorf("failed to resolve AWS profile: %v", err)
@@ -62,28 +66,46 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msg("Config updated successfully")
 
-	containerOptions := types.ContainerOptions{
-		ConfigDir:  configDir,
-		HomeDir:    homeDir,
-		AwsProfile: awsProfile,
-		AwsRegion:  awsRegion,
+	projectPath := "/Users/aaiken/Private/vmGoat"
+	scenariosPath := filepath.Join(projectPath, "scenarios")
+
+	// Set AWS paths depending if running inside a container or not
+	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
+	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
+
+	if containerized {
+		awsConfigPath = filepath.Join("/mnt/aws", "config")
+		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
 	}
 
-	for _, s := range listDeployedScenarios(config) {
-		log.Info().Msgf("Destroying Scenario: %s", s)
-		// Initialize the scenarios init container
-		if err := LaunchInitScenarioContainer(ctx, containerOptions, s); err != nil {
-			return fmt.Errorf("failed to launch init container: %v", err)
-		}
-		log.Debug().Msg("Scenario container successfully initialized")
+	// Setup the configurations that are passed when deploying the Terraform
+	terraformOptions := types.TerraformOptions{
+		Allowlist:          config.IpAddresses,
+		AWSConfigPath:      awsConfigPath,
+		AWSCredentialsPath: awsCredentialsPath,
+		AwsProfile:         awsProfile,
+		AwsRegion:          awsRegion,
+		ConfigDir:          configDir,
+		Destroy:            true,
+		TerraformVersion:   "1.12.0",
+	}
 
-		// Deploy the scenario
-		if err := LaunchScenarioContainer(ctx, containerOptions, "destroy", s); err != nil {
-			return fmt.Errorf("failed to launch base container: %v", err)
+	// Loop over scenarios and destroy them
+	for _, scenario := range listDeployedScenarios(config) {
+		terraformOptions.TerraformCodePath = filepath.Join(scenariosPath, scenario, "terraform")
+		terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario)
+		log.Info().Msgf("Destroying Scenario: %s", scenario)
+		tf, err := initializeTerraform(ctx, terraformOptions)
+		if err != nil {
+			return fmt.Errorf("Failed to initialized the scenario %s Terraform: %v", scenario, err)
 		}
-		log.Debug().Msg("Scenario container successfully destroyed")
 
-		delete(config.Scenarios, s)
+		err = applyTerraform(ctx, tf, terraformOptions)
+		if err != nil {
+			log.Fatal().Msgf("Error destroying the scenario %s: %s", scenario, err)
+		}
+
+		delete(config.Scenarios, scenario)
 	}
 
 	if err := handler.WriteConfig(configDir, config); err != nil {
@@ -91,12 +113,19 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	}
 	log.Debug().Msg("Removed scenarios from the config")
 
-	if err := LaunchInitContainer(ctx, containerOptions); err != nil {
-		return fmt.Errorf("failed to launch init container: %v", err)
+	log.Info().Msg("Removing the base infrastructure")
+
+	terraformOptions.TerraformCodePath = filepath.Join(projectPath, "base", "aws")
+	terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "terraform.tfstate")
+
+	tf, err := initializeTerraform(ctx, terraformOptions)
+	if err != nil {
+		return fmt.Errorf("Failed to initialized the base Terraform: %v", err)
 	}
 
-	if err := LaunchBaseContainer(ctx, containerOptions, "destroy"); err != nil {
-		return fmt.Errorf("failed to launch base container: %v", err)
+	err = applyTerraform(ctx, tf, terraformOptions)
+	if err != nil {
+		log.Fatal().Msgf("Error destroying the base Terraform: %s", err)
 	}
 
 	log.Info().Msg("Base Infrastructure destroyed successfully")

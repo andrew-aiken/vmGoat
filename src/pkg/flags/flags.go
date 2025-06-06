@@ -50,9 +50,18 @@ var (
 	Debug = &cli.BoolFlag{
 		Name:     "debug",
 		Aliases:  []string{"d"},
+		Value:    false,
 		Required: false,
 		OnlyOnce: true,
 		Usage:    "Display debug information",
+	}
+
+	// Debug defines the debug flag
+	Containerized = &cli.BoolFlag{
+		Name:     "containerized",
+		Required: false,
+		OnlyOnce: true,
+		Usage:    "If the flag is set assume that the application is running in a containerized environment",
 	}
 
 	// DeployedScenarios defines if only the deployed scenarios should be listed

@@ -24,3 +24,16 @@ type ContainerOptions struct {
 	AwsProfile string
 	AwsRegion  string
 }
+
+type TerraformOptions struct {
+	Allowlist              []net.IP
+	AWSConfigPath          string
+	AWSCredentialsPath     string
+	AwsProfile             string
+	AwsRegion              string
+	ConfigDir              string
+	Destroy                bool
+	TerraformCodePath      string
+	TerraformStateFilePath string
+	TerraformVersion       string
+}

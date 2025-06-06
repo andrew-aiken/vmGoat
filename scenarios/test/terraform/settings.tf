@@ -1,9 +1,7 @@
 terraform {
   required_version = ">= 1.0.0" # TODO: Set the version to be more specific
 
-  backend "local" {
-    path = "/mnt/state/scenario.tfstate"
-  }
+  backend "local" {}
 
   required_providers {
     aws = {
@@ -15,11 +13,6 @@ terraform {
 
 
 provider "aws" {
-  profile                  = var.aws_profile
-  region                   = var.aws_region
-  shared_config_files      = ["/mnt/aws/config"]
-  shared_credentials_files = ["/mnt/aws/credentials"]
-
   default_tags {
     tags = {
       scenario  = "test"

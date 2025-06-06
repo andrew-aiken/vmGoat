@@ -109,6 +109,7 @@ func main() {
 			},
 		},
 		Flags: []cli.Flag{
+			flags.Containerized,
 			flags.Debug,
 		},
 	}
