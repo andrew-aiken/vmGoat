@@ -46,7 +46,6 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	projectPath, _ := ctx.Value("projectPath").(string)
 	scenariosPath := filepath.Join(projectPath, "scenarios")
-
 	scenario := cli.Args().First()
 
 	if !validateScenario(scenario, scenariosPath) {
@@ -57,49 +56,23 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	// Read the config directory from the context
 	configDir, _ := ctx.Value("configDirectory").(string)
 
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
 
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
-	}
-
-	log.Debug().Msg("Config updated successfully")
-
-	config.Scenarios[scenario] = types.Scenario{
-		Provider: "aws",
-		Path:     filepath.Join(projectPath, "scenarios", scenario),
-	}
-
-	// Set AWS paths depending if running inside a container or not
-	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
-	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
-
-	if containerized && !localExecution {
-		awsConfigPath = filepath.Join("/mnt/aws", "config")
-		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
-	}
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
 
 	// Setup the configurations that are passed when deploying the Terraform
 	terraformOptions := types.TerraformOptions{
 		Allowlist:              config.IpAddresses,
 		AWSConfigPath:          awsConfigPath,
 		AWSCredentialsPath:     awsCredentialsPath,
-		AwsProfile:             awsProfile,
-		AwsRegion:              awsRegion,
+		AwsProfile:             config.CliInputs.AwsProfile,
+		AwsRegion:              config.CliInputs.AwsRegion,
 		ConfigDir:              configDir,
 		Destroy:                false,
 		TerraformCodePath:      filepath.Join(projectPath, "base", "aws"),
@@ -136,10 +109,14 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	if err != nil {
 		log.Fatal().Msgf("Error applying Terraform: %s", err)
 	}
-
 	log.Debug().Msg("Scenario resources successfully deployed")
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	config.Config.Scenarios[scenario] = types.Scenario{
+		Provider: "aws",
+		Path:     filepath.Join(projectPath, "scenarios", scenario),
+	}
+
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 	log.Debug().Msg("Config updated successfully with scenario")
@@ -155,6 +132,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msgf("Temporary directory created: %s", temporaryDirectory)
 
+	// Generate the Ansible inventory file with IP addresses from the Terraform state file
 	inventoryPath, entrypoint, serverIps, err := generateAnsibleInventory(types.AnsibleInventoryOptions{
 		ScenarioAnsiblePath: ansiblePath,
 		ScenarioStatePath:   terraformOptions.TerraformStateFilePath,
@@ -164,16 +142,17 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to generate Ansible inventory: %v", err)
 	}
 
-	if err := waitForSSH(serverIps, 60*time.Second); err != nil {
+	// Wait up to 60 seconds for SSH to be available
+	if waitForSSH(serverIps, 60*time.Second) != nil {
 		return fmt.Errorf("failed to wait for SSH: %v", err)
 	}
 
-	err = runAnsible(types.AnsibleOptions{
+	// Run the Ansible playbook
+	if runAnsible(types.AnsibleOptions{
 		AnsiblePath:   ansiblePath,
 		ConfigDir:     configDir,
 		InventoryPath: inventoryPath,
-	})
-	if err != nil {
+	}) != nil {
 		return fmt.Errorf("failed to run Ansible playbook: %v", err)
 	}
 

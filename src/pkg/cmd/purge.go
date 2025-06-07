@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
 	"infrasec.sh/vmGoat/pkg/types"
@@ -20,14 +22,20 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	// Read the config directory from the context.
 	configDir, _ := ctx.Value("configDirectory").(string)
 
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
+	projectPath, _ := ctx.Value("projectPath").(string)
+	scenariosPath := filepath.Join(projectPath, "scenarios")
 
-	deployedScenarios := listDeployedScenarios(config)
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
 
-	if !(cli.Bool("auto-approve") || approveDestruction(deployedScenarios)) {
+	deployedScenarios := listDeployedScenarios(config.Config)
+
+	if !(cli.Bool("auto-approve") || approveDestruction(log, deployedScenarios, "purge")) {
 		return nil
 	}
 
@@ -44,42 +52,15 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	projectPath, _ := ctx.Value("projectPath").(string)
-	scenariosPath := filepath.Join(projectPath, "scenarios")
-
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
-	}
-
-	log.Debug().Msg("Config updated successfully")
-
-	// Set AWS paths depending if running inside a container or not
-	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
-	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
-
-	if containerized && !localExecution {
-		awsConfigPath = filepath.Join("/mnt/aws", "config")
-		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
-	}
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
 
 	// Setup the configurations that are passed when deploying the Terraform
 	terraformOptions := types.TerraformOptions{
 		Allowlist:          config.IpAddresses,
 		AWSConfigPath:      awsConfigPath,
 		AWSCredentialsPath: awsCredentialsPath,
-		AwsProfile:         awsProfile,
-		AwsRegion:          awsRegion,
+		AwsProfile:         config.CliInputs.AwsProfile,
+		AwsRegion:          config.CliInputs.AwsRegion,
 		ConfigDir:          configDir,
 		Destroy:            true,
 		TerraformVersion:   "1.12.0",
@@ -100,10 +81,10 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 			log.Fatal().Msgf("Error destroying the scenario %s: %s", scenario, err)
 		}
 
-		delete(config.Scenarios, scenario)
+		delete(config.Config.Scenarios, scenario)
 	}
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 	log.Debug().Msg("Removed scenarios from the config")
@@ -128,30 +109,19 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	return nil
 }
 
-func listDeployedScenarios(config types.Config) []string {
-	var scenarios []string
-	for scenario := range config.Scenarios {
-		scenarios = append(scenarios, scenario)
-	}
-	return scenarios
-}
-
-func approveDestruction(scenarios []string) bool {
+// Prompt the user for approval before proceeding
+// List the deployed scenario[s] and the action being taken
+func approveDestruction(log logger.Logger, scenarios []string, action string) bool {
 	var approveInput string
 
-	if len(scenarios) != 0 {
-		log.Info().Msgf("Deployed scenarios:")
-		for _, s := range scenarios {
-			log.Info().Msgf(" - %s", s)
-		}
-	}
+	displayDeployedScenarios(log, scenarios)
 
-	log.Debug().Msg("Prompting for purge approval")
-	fmt.Print("Type 'Yes' to confirm that you want to destroy everything: ")
+	log.Debug().Msgf("Prompting for %s approval", action)
+	fmt.Printf("Type 'Yes' to confirm that you want to %s: ", action)
 	fmt.Scanln(&approveInput)
 
 	if approveInput != "Yes" {
-		log.Warn().Msg("Purge not approved. Exiting.")
+		log.Warn().Msgf("%s not approved. Exiting.", cases.Title(language.English, cases.Compact).String(action))
 		return false
 	}
 	return true

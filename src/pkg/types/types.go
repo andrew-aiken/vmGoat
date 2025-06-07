@@ -17,14 +17,6 @@ type Scenario struct {
 	Path     string `yaml:"path"`
 }
 
-type ContainerOptions struct {
-	Allowlist  []net.IP
-	ConfigDir  string
-	HomeDir    string
-	AwsProfile string
-	AwsRegion  string
-}
-
 type TerraformOptions struct {
 	Allowlist              []net.IP
 	AWSConfigPath          string
@@ -54,4 +46,16 @@ type TerraformOutput struct {
 	Value     string `json:"value"`
 	Type      string `json:"type"`
 	Sensitive bool   `json:"sensitive"`
+}
+
+type ValidateConfigInputs struct {
+	CliInputs       CliInputs
+	ConfigDirectory string
+	IpAddresses     []net.IP `yaml:"ip-addresses"`
+	Config          Config
+}
+
+type CliInputs struct {
+	AwsProfile string
+	AwsRegion  string
 }

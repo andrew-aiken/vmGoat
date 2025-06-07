@@ -31,70 +31,37 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 
 	projectPath, _ := ctx.Value("projectPath").(string)
 	scenariosPath := filepath.Join(projectPath, "scenarios")
-
 	scenario := cli.Args().First()
+
 	if !validateScenario(scenario, scenariosPath) {
 		log.Info().Msgf("\nUsage: %s", cli.UsageText)
 		return nil
 	}
 
-	approve := cli.Bool("auto-approve")
-	var approveInput string
-
-	if approve == false {
-		log.Debug().Msg("Prompting for destroy approval")
-		fmt.Printf("Type 'Yes' to confirm that you want to destroy the %s scenario: ", scenario)
-		fmt.Scanln(&approveInput)
-
-		if approveInput != "Yes" {
-			log.Warn().Msg("Destroy not approved. Exiting.")
-			return nil
-		}
-		approve = true
+	if !(cli.Bool("auto-approve") || approveDestruction(log, []string{scenario}, "destroy")) {
+		return nil
 	}
 
-	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
+	// Read the config directory from the context
 	configDir, _ := ctx.Value("configDirectory").(string)
 
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
 
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
-	}
-
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
-	}
-
-	log.Debug().Msg("Config updated successfully")
-
-	// Set AWS paths depending if running inside a container or not
-	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
-	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
-
-	if containerized && !localExecution {
-		awsConfigPath = filepath.Join("/mnt/aws", "config")
-		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
-	}
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
 
 	// Setup the configurations that are passed when deploying the Terraform
 	terraformOptions := types.TerraformOptions{
 		Allowlist:              config.IpAddresses,
 		AWSConfigPath:          awsConfigPath,
 		AWSCredentialsPath:     awsCredentialsPath,
-		AwsProfile:             awsProfile,
-		AwsRegion:              awsRegion,
+		AwsProfile:             config.CliInputs.AwsProfile,
+		AwsRegion:              config.CliInputs.AwsRegion,
 		ConfigDir:              configDir,
 		Destroy:                true,
 		TerraformCodePath:      filepath.Join(scenariosPath, scenario, "terraform"),
@@ -113,9 +80,9 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 		log.Fatal().Msgf("Error destroying the scenario %s: %s", scenario, err)
 	}
 
-	delete(config.Scenarios, scenario)
+	delete(config.Config.Scenarios, scenario)
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 
