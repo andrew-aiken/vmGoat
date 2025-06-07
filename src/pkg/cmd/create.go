@@ -236,16 +236,12 @@ func runAnsible(ctx context.Context, options types.AnsibleOptions) error {
 		},
 	}
 
-	// timeoutContext, cancel := context.WithTimeout(context.Background(), time.Duration(60)*time.Second)
-	// defer cancel()
-
 	playbookCmd := playbook.NewAnsiblePlaybookExecute(filepath.Join(options.AnsiblePath, "playbook.yaml")).
 		WithPlaybookOptions(ansiblePlaybookOptions)
 
 	// Check if requirements.yaml exists before trying to install roles
 	requirementsPath := filepath.Join(options.AnsiblePath, "requirements.yaml")
 
-	fmt.Println(requirementsPath)
 	var err error
 	if _, statErr := os.Stat(requirementsPath); statErr == nil {
 		// Requirements file exists, install roles first

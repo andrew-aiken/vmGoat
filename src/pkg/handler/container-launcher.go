@@ -4,16 +4,11 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/urfave/cli/v3"
 )
 
 func LaunchContainerizedVersion(ctx context.Context, cli *cli.Command, homeDir string) error {
-	containerArgs := append(cli.Root().Args().Slice(), "--containerized", "--auto-approve")
-
-	fmt.Println(strings.Join(containerArgs, " "))
-
 	// debug, _ := ctx.Value("debug").(bool)
 	configDir, _ := ctx.Value("configDirectory").(string)
 
@@ -23,7 +18,7 @@ func LaunchContainerizedVersion(ctx context.Context, cli *cli.Command, homeDir s
 		Image:      "local/vmgoat",
 		Name:       containerName,
 		Entrypoint: []string{"/vmGoat"},
-		Args:       containerArgs,
+		Args:       append(cli.Root().Args().Slice(), "--containerized", "--auto-approve"),
 		WorkingDir: "/",
 		Volumes: []VolumeMount{
 			{

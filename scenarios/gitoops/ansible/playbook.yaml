@@ -36,21 +36,6 @@
   roles:
     - {role: l3d.git.gitea, tags: forgejo}
   tasks:
-    - name: Make users passwordless for sudo in group wheel
-      ansible.builtin.lineinfile:
-        path: /etc/sudoers
-        state: present
-        regexp: '^%sudo'
-        line: '%sudo ALL=(ALL) NOPASSWD: ALL'
-        validate: 'visudo -cf %s'
-      ignore_errors: true
-
-    # I think this is because I stopped the update process during ubuntu install
-    - name: Remove weird cdrom repo from apt source
-      ansible.builtin.apt_repository:
-        repo: "deb [check-date=no] file:///cdrom focal main restricted"
-        state: absent
-
     - name: Update APT packages
       ansible.builtin.apt:
         update_cache: true
@@ -190,7 +175,8 @@
         - nginx
 
     - name: Import flags
-      ansible.builtin.include_vars: flags.yaml
+      ansible.builtin.include_vars:
+        file: flags.yaml
 
     - name: Create Linux non-root user
       ansible.builtin.include_tasks:
@@ -210,32 +196,43 @@
         - gitea_files
 
     # https://docs.gitea.com/development/api-usage#generating-and-listing-api-tokens
-    - name: Create access token
-      ansible.builtin.uri:
-        url: "http://localhost:3000/api/v1/users/{{ gitea_atlantis_username }}/tokens"
-        method: POST
-        url_username: "{{ gitea_username }}"
-        url_password: "{{ gitea_password }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body: >
-          {
-            "name": "apitoken",
-            "scopes": [
-              "write:issue",
-              "write:repository",
-              "read:user"
-            ]
-          }
-        body_format: json
-        return_content: true
-        status_code: 201
-      register: atlantis_gitea_access_token
+    - name: Setup Token
+      block:
+        - name: Delete existing token
+          ansible.builtin.uri:
+            url: "http://localhost:3000/api/v1/users/{{ gitea_atlantis_username }}/tokens/apitoken"
+            method: DELETE
+            url_username: "{{ gitea_username }}"
+            url_password: "{{ gitea_password }}"
+            force_basic_auth: true
+            body_format: json
+            return_content: true
+            status_code: 204
+          failed_when: result.status not in [204, 404] or (result.status == 404 and "The target couldn't be found" not in result.json.message)
+          register: result
 
-    - name: Debug token
-      ansible.builtin.debug:
-        msg: "{{ atlantis_gitea_access_token['json']['sha1'] }}"
+        - name: Create access token
+          ansible.builtin.uri:
+            url: "http://localhost:3000/api/v1/users/{{ gitea_atlantis_username }}/tokens"
+            method: POST
+            url_username: "{{ gitea_username }}"
+            url_password: "{{ gitea_password }}"
+            force_basic_auth: true
+            headers:
+              Content-Type: "application/json"
+            body: >
+              {
+                "name": "apitoken",
+                "scopes": [
+                  "write:issue",
+                  "write:repository",
+                  "read:user"
+                ]
+              }
+            body_format: json
+            return_content: true
+            status_code: 201
+          register: atlantis_gitea_access_token
 
     - name: Apply Atlantis tasks
       ansible.builtin.include_tasks:
@@ -280,7 +277,8 @@
         - iptables
 
     - name: Save iptables rules
-      ansible.builtin.shell: iptables-save > /etc/iptables/rules.v4
+      ansible.builtin.shell:
+        cmd: iptables-save > /etc/iptables/rules.v4
       tags:
         - atlantis
         - iptables
@@ -319,7 +317,6 @@
         body_format: json
         return_content: true
         status_code: 201
-      register: atlantis_gitea_webhook
       tags:
         - atlantis
         - gitea
@@ -342,6 +339,8 @@
         body_format: json
         return_content: true
         status_code: 201
+      failed_when: result.status not in [201, 422] or (result.status == 422 and "Key content has been used as non-deploy key" not in result.json.message)
+      register: result
       tags:
         - gitea
         - non_root_user
@@ -361,11 +360,3 @@
         owner: root
         group: root
         mode: '0600'
-
-# TODO: Figure out a way to install python modules on the ansible container
-    - name: Change user password
-      ansible.builtin.user:
-        name: ubuntu
-        update_password: always
-        password: "{{ 'M0reS3cureUbuntuPas5w0rd$inceItsH@rdT0Typ3Dur!ngInst@1l' | password_hash('sha512') }}"
-      ignore_errors: true
