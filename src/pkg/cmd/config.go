@@ -20,7 +20,6 @@ func ConfigAWS(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
 	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
 	configDir, _ := ctx.Value("configDirectory").(string)
 
 	config, err := handler.ReadConfig(configDir)

@@ -4,81 +4,99 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
-
-	"infrasec.sh/vmGoat/pkg/logger"
 )
 
 // TODO
 // Check if in a valid vmGoat file structure
 
 // Validate the existence of the configuration file
-func InitializeConfig(ctx context.Context, cmd *cli.Command) (context.Context, error) {
-	log := logger.Get()
+func InitializeConfig(ctx context.Context, cli *cli.Command) (context.Context, error) {
+	ctx = context.WithValue(ctx, "debug", cli.Root().Bool("debug"))
 
-	ctx = context.WithValue(ctx, "debug", cmd.Root().Bool("debug"))
+	ctx, configDirectory, err := setupConfigDirectory(ctx, cli.Root().Name, cli.Bool("containerized"))
+	if err != nil {
+		return ctx, fmt.Errorf("Error setting up config directory: %s", err)
+	}
 
+	if err := setupConfigfile(filepath.Join(configDirectory, "config.yaml")); err != nil {
+		return ctx, fmt.Errorf("Error setting up config file: %s", err)
+	}
+
+	if err := setupStateDirectory(filepath.Join(configDirectory, "state")); err != nil {
+		return ctx, fmt.Errorf("Error setting up state directory: %s", err)
+	}
+
+	return ctx, nil
+}
+
+func setupConfigDirectory(ctx context.Context, appName string, containerized bool) (context.Context, string, error) {
 	homeDirName, err := os.UserHomeDir()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get home directory")
 	}
 
-	configDirectory := fmt.Sprintf("%s/.config/%s", homeDirName, cmd.Root().Name)
-
-	// Check if the file exists and is a directory
-	if stat, err := os.Stat(configDirectory); err == nil {
-		if !stat.IsDir() {
-			return ctx, fmt.Errorf("file '%s' exists but is not a directory", configDirectory)
-		}
-		log.Debug().Msgf("Directory '%s' exists", configDirectory)
-		// If the file does not exist
-	} else if os.IsNotExist(err) {
-		log.Debug().Msgf("Directory '%s' does not exist", configDirectory)
-		// Make the directories
-		if err := os.MkdirAll(configDirectory, 0755); err != nil {
-			return ctx, fmt.Errorf("Error creating directory '%s': %v", configDirectory, err)
-		}
-	} else {
-		return ctx, fmt.Errorf("Error checking file '%s'", configDirectory)
+	configPath := filepath.Join(homeDirName, "/.config", appName)
+	if containerized {
+		configPath = "/mnt/config"
 	}
 
-	ctx = context.WithValue(ctx, "configDirectory", configDirectory)
+	ctx = context.WithValue(ctx, "configDirectory", configPath)
 
-	configFile := fmt.Sprintf("%s/config.yaml", configDirectory)
-
-	if _, err := os.Stat(configFile); err == nil {
-		log.Debug().Msgf("File '%s' exists", configFile)
+	if stat, err := os.Stat(configPath); err == nil {
+		if !stat.IsDir() {
+			return ctx, configPath, fmt.Errorf("file '%s' exists but is not a directory", configPath)
+		}
+		log.Debug().Msgf("Directory '%s' exists", configPath)
+		// If the file does not exist
 	} else if os.IsNotExist(err) {
-		log.Info().Msgf("File '%s' does not exist, initializing", configFile)
-		_, err := os.Create(configFile)
+		log.Debug().Msgf("Directory '%s' does not exist", configPath)
+		// Make the directories
+		if err := os.MkdirAll(configPath, 0755); err != nil {
+			return ctx, configPath, fmt.Errorf("Error creating directory '%s': %v", configPath, err)
+		}
+	} else {
+		return ctx, configPath, fmt.Errorf("Error checking file '%s'", configPath)
+	}
+	return ctx, configPath, nil
+}
+
+func setupConfigfile(filePath string) error {
+	if _, err := os.Stat(filePath); err == nil {
+		log.Debug().Msgf("File '%s' exists", filePath)
+	} else if os.IsNotExist(err) {
+		log.Info().Msgf("File '%s' does not exist, initializing", filePath)
+		_, err := os.Create(filePath)
 		if err != nil {
-			return ctx, fmt.Errorf("Error creating file '%s': %v", configFile, err)
+			return fmt.Errorf("Error creating file '%s': %v", filePath, err)
 		} else {
-			log.Debug().Msgf("File '%s' created", configFile)
+			log.Debug().Msgf("File '%s' created", filePath)
 		}
 	} else {
-		return ctx, fmt.Errorf("Error checking file '%s': %v", configFile, err)
+		return fmt.Errorf("Error checking file '%s': %v", filePath, err)
 	}
+	return nil
+}
 
-	stateDirectory := fmt.Sprintf("%s/state", configDirectory)
-
+func setupStateDirectory(path string) error {
 	// Check if state directory exists
-	if stat, err := os.Stat(stateDirectory); err == nil {
+	if stat, err := os.Stat(path); err == nil {
 		if !stat.IsDir() {
-			return ctx, fmt.Errorf("file '%s' exists but is not a directory", stateDirectory)
+			return fmt.Errorf("file '%s' exists but is not a directory", path)
 		}
-		log.Debug().Msgf("Directory '%s' exists", stateDirectory)
+		log.Debug().Msgf("Directory '%s' exists", path)
 		// If the file does not exist
 	} else if os.IsNotExist(err) {
-		log.Debug().Msgf("Directory '%s' does not exist", stateDirectory)
+		log.Debug().Msgf("Directory '%s' does not exist", path)
 		// Make the directories
-		if err := os.Mkdir(stateDirectory, 0755); err != nil {
-			return ctx, fmt.Errorf("Error creating directory '%s': %v", stateDirectory, err)
+		if err := os.Mkdir(path, 0755); err != nil {
+			return fmt.Errorf("Error creating directory '%s': %v", path, err)
 		}
 	} else {
-		return ctx, fmt.Errorf("Error checking file '%s'", stateDirectory)
+		return fmt.Errorf("Error checking file '%s'", path)
 	}
-
-	return ctx, nil
+	return nil
 }
