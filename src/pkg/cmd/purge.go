@@ -44,14 +44,7 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	projectPath := "/mnt"
-	if !containerized {
-		projectPath, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %v", err)
-		}
-	}
-
+	projectPath, _ := ctx.Value("projectPath").(string)
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
 	awsProfile := cli.String("aws-profile")

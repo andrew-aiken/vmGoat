@@ -29,17 +29,8 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	projectPath := "/mnt"
-	if !containerized {
-		projectPath, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %v", err)
-		}
-	}
-
+	projectPath, _ := ctx.Value("projectPath").(string)
 	scenariosPath := filepath.Join(projectPath, "scenarios")
-
-	// scenariosPath := "/Users/aaiken/Private/vmGoat/scenarios"
 
 	scenario := cli.Args().First()
 	if !validateScenario(scenario, scenariosPath) {
@@ -71,15 +62,8 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to read config: %v", err)
 	}
 
-	// Get user's home directory for AWS credentials
-	// homeDir, err := os.UserHomeDir()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get user home directory: %v", err)
-	// }
-
 	awsProfile := cli.String("aws-profile")
 	awsRegion := cli.String("aws-region")
-	// containerized := cli.Bool("containerized")
 
 	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
 		return fmt.Errorf("failed to resolve AWS profile: %v", err)

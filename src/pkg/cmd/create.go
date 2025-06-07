@@ -35,7 +35,6 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	containerized := cli.Bool("containerized")
 	localExecution := cli.Bool("local")
 
-	// Get user's home directory for AWS credentials
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %v", err)
@@ -45,18 +44,11 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	projectPath := "/mnt"
-	if !containerized {
-		projectPath, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %v", err)
-		}
-	}
-
+	projectPath, _ := ctx.Value("projectPath").(string)
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
-	// TODO: Error if not scenarios are found
 	scenario := cli.Args().First()
+
 	if !validateScenario(scenario, scenariosPath) {
 		log.Info().Msgf("\nUsage: %s", cli.UsageText)
 		return nil
@@ -402,6 +394,11 @@ func validateScenario(scenario string, scenariosPath string) bool {
 	}
 
 	scenarios, _ := listScenarios(scenariosPath)
+
+	if len(scenarios) == 0 {
+		log.Warn().Msg("No scenarios found in the scenarios directory, please confirm you are running in the correct directory")
+		return false
+	}
 
 	if !slices.Contains(scenarios, scenario) {
 		invalidScenario = true

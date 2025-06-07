@@ -30,6 +30,25 @@ func InitializeConfig(ctx context.Context, cli *cli.Command) (context.Context, e
 		return ctx, fmt.Errorf("Error setting up state directory: %s", err)
 	}
 
+	ctx, err = determineProjectPath(ctx, cli.Bool("containerized"))
+	if err != nil {
+		return ctx, fmt.Errorf("Error determining project path: %s", err)
+	}
+
+	return ctx, nil
+}
+
+func determineProjectPath(ctx context.Context, containerized bool) (context.Context, error) {
+	projectPath := "/mnt"
+	if !containerized {
+		currentDir, err := os.Getwd()
+		projectPath = currentDir
+		if err != nil {
+			return ctx, fmt.Errorf("failed to get user home directory: %v", err)
+		}
+	}
+
+	ctx = context.WithValue(ctx, "projectPath", projectPath)
 	return ctx, nil
 }
 

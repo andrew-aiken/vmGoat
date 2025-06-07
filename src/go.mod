@@ -3,6 +3,7 @@ module infrasec.sh/vmGoat
 go 1.24.2
 
 require (
+	github.com/apenella/go-ansible/v2 v2.2.0
 	github.com/docker/docker v24.0.9+incompatible
 	github.com/fatih/color v1.18.0
 	github.com/hashicorp/go-version v1.7.0
@@ -16,7 +17,6 @@ require (
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/apenella/go-ansible/v2 v2.2.0 // indirect
 	github.com/apenella/go-common-utils/data v0.0.0-20220913191136-86daaa87e7df // indirect
 	github.com/apenella/go-common-utils/error v0.0.0-20220913191136-86daaa87e7df // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
@@ -30,7 +30,6 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
 	github.com/hashicorp/terraform-json v0.24.0 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/moby/term v0.5.0 // indirect
