@@ -35,7 +35,7 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:      "create",
-				Aliases:   []string{"c"},
+				Aliases:   []string{"c", "deploy"},
 				Usage:     "Create a new deployment",
 				UsageText: "vmgoat create [scenario] [args]",
 				Action:    cmd.Create,
@@ -48,7 +48,7 @@ func main() {
 			},
 			{
 				Name:      "destroy",
-				Aliases:   []string{"d"},
+				Aliases:   []string{"d", "delete"},
 				Usage:     "Delete an existing deployment",
 				UsageText: "vmgoat destroy [scenario] [args]",
 				Action:    cmd.Destroy,

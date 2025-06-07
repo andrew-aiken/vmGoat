@@ -14,6 +14,7 @@ import (
 
 	"github.com/apenella/go-ansible/v2/pkg/execute"
 	"github.com/apenella/go-ansible/v2/pkg/execute/workflow"
+	galaxy_collection "github.com/apenella/go-ansible/v2/pkg/galaxy/collection/install"
 	galaxy "github.com/apenella/go-ansible/v2/pkg/galaxy/role/install"
 	"github.com/apenella/go-ansible/v2/pkg/playbook"
 	"github.com/hashicorp/go-version"
@@ -148,7 +149,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	}
 
 	// Run the Ansible playbook
-	if runAnsible(types.AnsibleOptions{
+	if runAnsible(ctx, types.AnsibleOptions{
 		AnsiblePath:   ansiblePath,
 		ConfigDir:     configDir,
 		InventoryPath: inventoryPath,
@@ -225,7 +226,7 @@ func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory 
 	return inventoryPath, data.Outputs["entrypoint"].Value, serverIps, nil
 }
 
-func runAnsible(options types.AnsibleOptions) error {
+func runAnsible(ctx context.Context, options types.AnsibleOptions) error {
 	ansiblePlaybookOptions := &playbook.AnsiblePlaybookOptions{
 		Become:        true,
 		Inventory:     options.InventoryPath,
@@ -235,14 +236,16 @@ func runAnsible(options types.AnsibleOptions) error {
 		},
 	}
 
-	timeoutContext, cancel := context.WithTimeout(context.Background(), time.Duration(60)*time.Second)
-	defer cancel()
+	// timeoutContext, cancel := context.WithTimeout(context.Background(), time.Duration(60)*time.Second)
+	// defer cancel()
 
 	playbookCmd := playbook.NewAnsiblePlaybookExecute(filepath.Join(options.AnsiblePath, "playbook.yaml")).
 		WithPlaybookOptions(ansiblePlaybookOptions)
 
 	// Check if requirements.yaml exists before trying to install roles
 	requirementsPath := filepath.Join(options.AnsiblePath, "requirements.yaml")
+
+	fmt.Println(requirementsPath)
 	var err error
 	if _, statErr := os.Stat(requirementsPath); statErr == nil {
 		// Requirements file exists, install roles first
@@ -257,19 +260,27 @@ func runAnsible(options types.AnsibleOptions) error {
 			execute.WithCmd(galaxyInstallRolesCmd),
 		)
 
-		err = workflow.NewWorkflowExecute(galaxyInstallRolesExec, playbookCmd).
+		galaxyInstallCollectionCmd := galaxy_collection.NewAnsibleGalaxyCollectionInstallCmd(
+			galaxy_collection.WithGalaxyCollectionInstallOptions(&galaxy_collection.AnsibleGalaxyCollectionInstallOptions{
+				Force:            true,
+				Upgrade:          true,
+				RequirementsFile: requirementsPath,
+			}),
+		)
+
+		galaxyInstallCollectionExec := execute.NewDefaultExecute(
+			execute.WithCmd(galaxyInstallCollectionCmd),
+		)
+
+		err = workflow.NewWorkflowExecute(galaxyInstallCollectionExec, galaxyInstallRolesExec, playbookCmd).
 			WithTrace().
-			Execute(timeoutContext)
+			Execute(ctx)
 	} else {
 		// No requirements file, just run the playbook
-		err = playbookCmd.Execute(timeoutContext)
+		err = playbookCmd.Execute(ctx)
 	}
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func initializeTerraform(ctx context.Context, options types.TerraformOptions) (*tfexec.Terraform, error) {

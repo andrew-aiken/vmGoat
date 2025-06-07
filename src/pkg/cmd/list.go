@@ -49,7 +49,7 @@ func displayDeployedScenarios(log logger.Logger, scenarios []string) {
 }
 
 // Display all the scenarios in the project directory, highlighting those that are deployed
-func displayAllScenarios(log logger.Logger, scenarios []string, projectPath string) error {
+func displayAllScenarios(log logger.Logger, deployedScenarios []string, projectPath string) error {
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
 	scenarios, err := listScenarios(scenariosPath)
@@ -59,7 +59,7 @@ func displayAllScenarios(log logger.Logger, scenarios []string, projectPath stri
 
 	log.Info().Msgf("Available scenarios:")
 	for _, s := range scenarios {
-		if slices.Contains(scenarios, s) {
+		if slices.Contains(deployedScenarios, s) {
 			log.Info().Msgf(" - %s", color.RedString(s))
 		} else {
 			log.Info().Msgf(" - %s", s)
