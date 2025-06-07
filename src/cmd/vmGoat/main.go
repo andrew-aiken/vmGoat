@@ -43,6 +43,7 @@ func main() {
 					flags.AutoApprove,
 					flags.AWSProfile,
 					flags.AWSRegion,
+					flags.Local,
 				},
 			},
 			{
@@ -55,6 +56,7 @@ func main() {
 					flags.AutoApprove,
 					flags.AWSProfile,
 					flags.AWSRegion,
+					flags.Local,
 				},
 			},
 			{
@@ -75,6 +77,7 @@ func main() {
 					flags.AutoApprove,
 					flags.AWSProfile,
 					flags.AWSRegion,
+					flags.Local,
 				},
 			},
 			{
@@ -93,9 +96,9 @@ func main() {
 					},
 					{
 						Name:        "allowlist",
-						Usage:       "Specify IPs to allow to connect to the infrastructure",
+						Usage:       "Specify IPv4 addresses to allow to connect to the infrastructure",
 						UsageText:   "vmgoat config allowlist [ip1] [ip2] [Nth]",
-						Description: "Will automatically pull your public IP address and write it to the config file.\nAddresses can be specified as arguments to alow access from multiples IPs.",
+						Description: "Will automatically pull your public IPv4 address and write it to the config file.\nAddresses can be specified as arguments to alow access from multiples IPs.",
 						Action:      cmd.ConfigAllowlist,
 					},
 					{

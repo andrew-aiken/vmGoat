@@ -227,10 +227,6 @@ func DeleteContainer(ctx context.Context, containerName string) error {
 
 // GetContainerLogs is a helper function to get container logs by name
 func GetContainerLogs(ctx context.Context, containerName string) error {
-	// if zerolog.GlobalLevel() > zerolog.DebugLevel {
-	// 	return nil
-	// }
-
 	docker, err := NewDockerContainer()
 	if err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
@@ -16,11 +17,7 @@ import (
 func Purge(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	approve := cli.Bool("auto-approve")
-	var approveInput string
-
 	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
 	configDir, _ := ctx.Value("configDirectory").(string)
 
 	config, err := handler.ReadConfig(configDir)
@@ -29,24 +26,13 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	}
 
 	deployedScenarios := listDeployedScenarios(config)
-	if len(deployedScenarios) != 0 {
-		log.Info().Msgf("Deployed scenarios:")
-		for _, s := range deployedScenarios {
-			log.Info().Msgf(" - %s", s)
-		}
+
+	if !(cli.Bool("auto-approve") || approveDestruction(deployedScenarios)) {
+		return nil
 	}
 
-	if approve == false {
-		log.Debug().Msg("Prompting for purge approval")
-		fmt.Print("Type 'Yes' to confirm that you want to destroy everything: ")
-		fmt.Scanln(&approveInput)
-
-		if approveInput != "Yes" {
-			log.Warn().Msg("Purge not approved. Exiting.")
-			return nil
-		}
-		approve = true
-	}
+	containerized := cli.Bool("containerized")
+	localExecution := cli.Bool("local")
 
 	// Get user's home directory for AWS credentials
 	homeDir, err := os.UserHomeDir()
@@ -54,9 +40,22 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
+	if !(containerized || localExecution) {
+		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
+	}
+
+	projectPath := "/mnt"
+	if !containerized {
+		projectPath, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %v", err)
+		}
+	}
+
+	scenariosPath := filepath.Join(projectPath, "scenarios")
+
 	awsProfile := cli.String("aws-profile")
 	awsRegion := cli.String("aws-region")
-	containerized := cli.Bool("containerized")
 
 	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
 		return fmt.Errorf("failed to resolve AWS profile: %v", err)
@@ -72,14 +71,11 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msg("Config updated successfully")
 
-	projectPath := "/Users/aaiken/Private/vmGoat" // TODO
-	scenariosPath := filepath.Join(projectPath, "scenarios")
-
 	// Set AWS paths depending if running inside a container or not
 	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
 	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
 
-	if containerized {
+	if containerized && !localExecution {
 		awsConfigPath = filepath.Join("/mnt/aws", "config")
 		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
 	}
@@ -145,4 +141,25 @@ func listDeployedScenarios(config types.Config) []string {
 		scenarios = append(scenarios, scenario)
 	}
 	return scenarios
+}
+
+func approveDestruction(scenarios []string) bool {
+	var approveInput string
+
+	if len(scenarios) != 0 {
+		log.Info().Msgf("Deployed scenarios:")
+		for _, s := range scenarios {
+			log.Info().Msgf(" - %s", s)
+		}
+	}
+
+	log.Debug().Msg("Prompting for purge approval")
+	fmt.Print("Type 'Yes' to confirm that you want to destroy everything: ")
+	fmt.Scanln(&approveInput)
+
+	if approveInput != "Yes" {
+		log.Warn().Msg("Purge not approved. Exiting.")
+		return false
+	}
+	return true
 }

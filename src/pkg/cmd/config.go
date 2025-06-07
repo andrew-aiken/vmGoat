@@ -72,7 +72,7 @@ func ConfigAllowlist(ctx context.Context, cli *cli.Command) error {
 
 	// Query the user for IP addresses to allowlist if none are provided
 	if cli.Args().Len() == 0 {
-		log.Info().Msg("No IP addresses provided, automatically pulling IP from ifconfig.me")
+		log.Info().Msg("No IPv4 addresses provided, automatically pulling IP from ifconfig.me")
 		res, err := http.Get("https://ifconfig.me/ip")
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to fetch IP from ifconfig.me")

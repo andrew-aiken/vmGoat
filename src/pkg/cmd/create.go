@@ -32,9 +32,30 @@ import (
 func Create(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	projectPath := "/Users/aaiken/Private/vmGoat" // TODO
+	containerized := cli.Bool("containerized")
+	localExecution := cli.Bool("local")
+
+	// Get user's home directory for AWS credentials
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %v", err)
+	}
+
+	if !(containerized || localExecution) {
+		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
+	}
+
+	projectPath := "/mnt"
+	if !containerized {
+		projectPath, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get user home directory: %v", err)
+		}
+	}
+
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
+	// TODO: Error if not scenarios are found
 	scenario := cli.Args().First()
 	if !validateScenario(scenario, scenariosPath) {
 		log.Info().Msgf("\nUsage: %s", cli.UsageText)
@@ -49,15 +70,8 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to read config: %v", err)
 	}
 
-	// Get user's home directory for AWS credentials
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
 	awsProfile := cli.String("aws-profile")
 	awsRegion := cli.String("aws-region")
-	containerized := cli.Bool("containerized")
 
 	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
 		return fmt.Errorf("failed to resolve AWS profile: %v", err)
@@ -75,14 +89,14 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	config.Scenarios[scenario] = types.Scenario{
 		Provider: "aws",
-		Path:     "tmp",
+		Path:     filepath.Join(projectPath, "scenarios", scenario),
 	}
 
 	// Set AWS paths depending if running inside a container or not
 	awsConfigPath := filepath.Join(homeDir, ".aws", "config")
 	awsCredentialsPath := filepath.Join(homeDir, ".aws", "credentials")
 
-	if containerized {
+	if containerized && !localExecution {
 		awsConfigPath = filepath.Join("/mnt/aws", "config")
 		awsCredentialsPath = filepath.Join("/mnt/aws", "credentials")
 	}
@@ -149,13 +163,17 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msgf("Temporary directory created: %s", temporaryDirectory)
 
-	inventoryPath, entrypoint, err := generateAnsibleInventory(types.AnsibleInventoryOptions{
+	inventoryPath, entrypoint, serverIps, err := generateAnsibleInventory(types.AnsibleInventoryOptions{
 		ScenarioAnsiblePath: ansiblePath,
 		ScenarioStatePath:   terraformOptions.TerraformStateFilePath,
 		TemporaryDirPath:    temporaryDirectory,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to generate Ansible inventory: %v", err)
+	}
+
+	if err := waitForSSH(serverIps, 60*time.Second); err != nil {
+		return fmt.Errorf("failed to wait for SSH: %v", err)
 	}
 
 	err = runAnsible(types.AnsibleOptions{
@@ -172,7 +190,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	return nil
 }
 
-func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory string, entrypoint string, error error) {
+func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory string, entrypoint string, ips []string, error error) {
 	file, err := os.Open(options.ScenarioStatePath)
 	if err != nil {
 		panic(err)
@@ -196,14 +214,14 @@ func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory 
 	// Copy the file using io.Copy
 	src, err := os.Open(srcPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to open source file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to open source file: %v", err)
 	}
 	defer src.Close()
 
 	// Read the entire file content
 	content, err := io.ReadAll(src)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read source file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to read source file: %v", err)
 	}
 
 	// Convert to string for replacement
@@ -224,16 +242,16 @@ func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory 
 	// Create the destination file
 	dst, err := os.Create(inventoryPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create destination file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to create destination file: %v", err)
 	}
 	defer dst.Close()
 
 	// Write the modified content to the destination file
 	if _, err := dst.Write([]byte(tmpl)); err != nil {
-		return "", "", fmt.Errorf("failed to write modified content: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to write modified content: %v", err)
 	}
 
-	return inventoryPath, data.Outputs["entrypoint"].Value, nil
+	return inventoryPath, data.Outputs["entrypoint"].Value, serverIps, nil
 }
 
 func runAnsible(options types.AnsibleOptions) error {
@@ -398,4 +416,57 @@ func validateScenario(scenario string, scenariosPath string) bool {
 		return false
 	}
 	return true
+}
+
+// WaitForSSH waits for SSH connectivity to be available on all provided IP addresses
+func waitForSSH(ips []string, timeout time.Duration) error {
+	// Create a channel to receive results from goroutines
+	type result struct {
+		ip    string
+		error error
+	}
+	results := make(chan result, len(ips))
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Launch a goroutine for each IP
+	for _, ip := range ips {
+		log.Debug().Msgf("Waiting for SSH on %s", ip)
+		go func(ip string) {
+			for {
+				select {
+				case <-ctx.Done():
+					results <- result{ip: ip, error: fmt.Errorf("timeout waiting for SSH on %s", ip)}
+					return
+				default:
+					// Try to establish TCP connection to port 22
+					conn, err := net.DialTimeout("tcp", ip+":22", 5*time.Second)
+					if err == nil {
+						conn.Close()
+						results <- result{ip: ip, error: nil}
+						return
+					}
+					// Wait a bit before trying again
+					time.Sleep(2 * time.Second)
+				}
+			}
+		}(ip)
+	}
+
+	// Collect results
+	var errors []string
+	for i := 0; i < len(ips); i++ {
+		result := <-results
+		if result.error != nil {
+			errors = append(errors, result.error.Error())
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to connect to some IPs: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }

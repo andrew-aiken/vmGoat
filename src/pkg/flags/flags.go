@@ -26,7 +26,7 @@ var (
 	AutoApprove = &cli.BoolFlag{
 		Name:     "auto-approve",
 		Required: false,
-		OnlyOnce: true,
+		OnlyOnce: false,
 		Usage:    "Automatically approve all actions without prompting",
 	}
 
@@ -56,12 +56,21 @@ var (
 		Usage:    "Display debug information",
 	}
 
-	// Debug defines the debug flag
 	Containerized = &cli.BoolFlag{
 		Name:     "containerized",
+		Value:    false,
 		Required: false,
 		OnlyOnce: true,
-		Usage:    "If the flag is set assume that the application is running in a containerized environment",
+		Usage:    "Run the deployment applications in a containerized environment",
+	}
+
+	Local = &cli.BoolFlag{
+		Name:     "local",
+		Aliases:  []string{"l"},
+		Value:    false,
+		Required: false,
+		OnlyOnce: true,
+		Usage:    "Run everything locally without containerization",
 	}
 
 	// DeployedScenarios defines if only the deployed scenarios should be listed
