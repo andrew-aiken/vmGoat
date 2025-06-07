@@ -37,3 +37,21 @@ type TerraformOptions struct {
 	TerraformStateFilePath string
 	TerraformVersion       string
 }
+
+type AnsibleInventoryOptions struct {
+	ScenarioAnsiblePath string
+	ScenarioStatePath   string
+	TemporaryDirPath    string
+}
+
+type AnsibleOptions struct {
+	AnsiblePath   string
+	ConfigDir     string
+	InventoryPath string
+}
+
+type TerraformOutput struct {
+	Value     string `json:"value"`
+	Type      string `json:"type"`
+	Sensitive bool   `json:"sensitive"`
+}

@@ -19,7 +19,22 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	approve := cli.Bool("auto-approve")
 	var approveInput string
 
-	// TODO: list all deployed scenarios
+	// Read the config directory from the context.
+	// This should be under the home directory of the user. (`~/.config/vmgoat`)
+	configDir, _ := ctx.Value("configDirectory").(string)
+
+	config, err := handler.ReadConfig(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+
+	deployedScenarios := listDeployedScenarios(config)
+	if len(deployedScenarios) != 0 {
+		log.Info().Msgf("Deployed scenarios:")
+		for _, s := range deployedScenarios {
+			log.Info().Msgf(" - %s", s)
+		}
+	}
 
 	if approve == false {
 		log.Debug().Msg("Prompting for purge approval")
@@ -31,15 +46,6 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 			return nil
 		}
 		approve = true
-	}
-
-	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
-	configDir, _ := ctx.Value("configDirectory").(string)
-
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
 	}
 
 	// Get user's home directory for AWS credentials
@@ -66,7 +72,7 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 
 	log.Debug().Msg("Config updated successfully")
 
-	projectPath := "/Users/aaiken/Private/vmGoat"
+	projectPath := "/Users/aaiken/Private/vmGoat" // TODO
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
 	// Set AWS paths depending if running inside a container or not
@@ -91,9 +97,9 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	}
 
 	// Loop over scenarios and destroy them
-	for _, scenario := range listDeployedScenarios(config) {
+	for _, scenario := range deployedScenarios {
 		terraformOptions.TerraformCodePath = filepath.Join(scenariosPath, scenario, "terraform")
-		terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario)
+		terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate")
 		log.Info().Msgf("Destroying Scenario: %s", scenario)
 		tf, err := initializeTerraform(ctx, terraformOptions)
 		if err != nil {

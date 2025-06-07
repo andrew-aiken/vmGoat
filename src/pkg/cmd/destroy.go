@@ -92,7 +92,7 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 		Destroy:                true,
 		TerraformCodePath:      filepath.Join(scenariosPath, scenario, "terraform"),
 		TerraformVersion:       "1.12.0",
-		TerraformStateFilePath: filepath.Join(configDir, "state", "scenario", scenario),
+		TerraformStateFilePath: filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate"),
 	}
 
 	log.Info().Msgf("Destroying Scenario: %s", scenario)

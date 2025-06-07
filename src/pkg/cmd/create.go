@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apenella/go-ansible/v2/pkg/execute"
+	"github.com/apenella/go-ansible/v2/pkg/execute/workflow"
+	galaxy "github.com/apenella/go-ansible/v2/pkg/galaxy/role/install"
+	"github.com/apenella/go-ansible/v2/pkg/playbook"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
@@ -26,7 +32,7 @@ import (
 func Create(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	projectPath := "/Users/aaiken/Private/vmGoat"
+	projectPath := "/Users/aaiken/Private/vmGoat" // TODO
 	scenariosPath := filepath.Join(projectPath, "scenarios")
 
 	scenario := cli.Args().First()
@@ -35,8 +41,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		return nil
 	}
 
-	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`) // TODO: this will probably need to change if we run in a container
+	// Read the config directory from the context
 	configDir, _ := ctx.Value("configDirectory").(string)
 
 	config, err := handler.ReadConfig(configDir)
@@ -96,6 +101,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		TerraformStateFilePath: filepath.Join(configDir, "state", "terraform.tfstate"),
 	}
 
+	log.Info().Msg("Deploying base infrastructure")
 	tf, err := initializeTerraform(ctx, terraformOptions)
 	if err != nil {
 		return fmt.Errorf("Failed to initialize the base Terraform: %v", err)
@@ -109,9 +115,11 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	log.Debug().Msg("Base resources successfully deployed")
 
 	// Deploy Scenario
-	// Change the location to the scenarions paths // TODO: word
+	log.Info().Msg("Deploying scenario infrastructure")
+
+	// Update the Terraform path options for the scenario
 	terraformOptions.TerraformCodePath = filepath.Join(scenariosPath, scenario, "terraform")
-	terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario)
+	terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate")
 
 	tf, err = initializeTerraform(ctx, terraformOptions)
 	if err != nil {
@@ -130,94 +138,153 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	}
 	log.Debug().Msg("Config updated successfully with scenario")
 
-	// // Ansible
-	// statePath := filepath.Join(configDir, "state", "scenario", scenario, "scenario.tfstate")
+	ansiblePath := filepath.Join(scenariosPath, scenario, "ansible")
 
-	// file, err := os.Open(statePath)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer file.Close()
+	// Create a temporary directory for Ansible files
+	temporaryDirectory, err := os.MkdirTemp("", "vmgoat-ansible-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(temporaryDirectory)
 
-	// // Parse the raw structure into a map
-	// var data struct {
-	// 	Outputs map[string]Output `json:"outputs"`
-	// }
+	log.Debug().Msgf("Temporary directory created: %s", temporaryDirectory)
 
-	// decoder := json.NewDecoder(file)
-	// if err := decoder.Decode(&data); err != nil {
-	// 	panic(err)
-	// }
+	inventoryPath, entrypoint, err := generateAnsibleInventory(types.AnsibleInventoryOptions{
+		ScenarioAnsiblePath: ansiblePath,
+		ScenarioStatePath:   terraformOptions.TerraformStateFilePath,
+		TemporaryDirPath:    temporaryDirectory,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to generate Ansible inventory: %v", err)
+	}
 
-	// // Create a temporary directory for Ansible files
-	// tmpDir, err := os.MkdirTemp("", "vmgoat-ansible-*")
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create temp directory: %v", err)
-	// }
-	// defer os.RemoveAll(tmpDir)
+	err = runAnsible(types.AnsibleOptions{
+		AnsiblePath:   ansiblePath,
+		ConfigDir:     configDir,
+		InventoryPath: inventoryPath,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to run Ansible playbook: %v", err)
+	}
 
-	// log.Debug().Msgf("Temporary directory created: %s", tmpDir)
+	log.Info().Msgf("Entrypoint: %s", entrypoint)
 
-	// // Copy inventory template to temp directory
-	// srcPath := filepath.Join(scenariosPath, scenario, "ansible", "inventory.tmpl")
-	// dstPath := filepath.Join(tmpDir, "inventory")
+	return nil
+}
 
-	// // Copy the file using io.Copy
-	// src, err := os.Open(srcPath)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to open source file: %v", err)
-	// }
-	// defer src.Close()
+func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory string, entrypoint string, error error) {
+	file, err := os.Open(options.ScenarioStatePath)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
 
-	// // Read the entire file content
-	// content, err := io.ReadAll(src)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to read source file: %v", err)
-	// }
+	// Parse the raw structure into a map
+	var data struct {
+		Outputs map[string]types.TerraformOutput `json:"outputs"`
+	}
 
-	// // Convert to string for replacement
-	// tmpl := string(content)
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&data); err != nil {
+		panic(err)
+	}
 
-	// serverIps := []string{}
+	// Copy inventory template to temp directory
+	srcPath := filepath.Join(options.ScenarioAnsiblePath, "inventory.tmpl")
+	inventoryPath := filepath.Join(options.TemporaryDirPath, "inventory")
 
-	// // Replace variables in the template with values from tfstate
-	// for key, output := range data.Outputs {
-	// 	if strings.HasPrefix(key, "host_") {
-	// 		serverIps = append(serverIps, output.Value)
-	// 	}
-	// 	tmpl = strings.Replace(tmpl, key, output.Value, -1)
-	// }
+	// Copy the file using io.Copy
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to open source file: %v", err)
+	}
+	defer src.Close()
 
-	// log.Debug().Msgf("Modified content: %s", tmpl)
+	// Read the entire file content
+	content, err := io.ReadAll(src)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read source file: %v", err)
+	}
 
-	// // Create the destination file
-	// dst, err := os.Create(dstPath)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create destination file: %v", err)
-	// }
-	// defer dst.Close()
+	// Convert to string for replacement
+	tmpl := string(content)
 
-	// // Write the modified content to the destination file
-	// if _, err := dst.Write([]byte(tmpl)); err != nil {
-	// 	return fmt.Errorf("failed to write modified content: %v", err)
-	// }
+	serverIps := []string{}
 
-	// if err := WaitForSSH(serverIps, 60*time.Second); err != nil {
-	// 	return fmt.Errorf("failed to wait for SSH: %v", err)
-	// }
+	// Replace variables in the template with values from tfstate
+	for key, output := range data.Outputs {
+		if strings.HasPrefix(key, "host_") {
+			serverIps = append(serverIps, output.Value)
+		}
+		tmpl = strings.Replace(tmpl, key, output.Value, -1)
+	}
 
-	// if err := AnsibleContainer(ctx, containerOptions, scenario, dstPath); err != nil {
-	// 	return fmt.Errorf("failed to launch ansible container: %v", err)
-	// }
-	// log.Debug().Msg("Scenario configured with Ansible successfully")
+	log.Debug().Msgf("Modified content: %s", tmpl)
 
-	// log.Info().Msgf("deployed infrastructure: %s", scenario)
+	// Create the destination file
+	dst, err := os.Create(inventoryPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create destination file: %v", err)
+	}
+	defer dst.Close()
 
-	// log.Info().Msgf("Entrypoint:\n%s", data.Outputs["entrypoint"].Value)
+	// Write the modified content to the destination file
+	if _, err := dst.Write([]byte(tmpl)); err != nil {
+		return "", "", fmt.Errorf("failed to write modified content: %v", err)
+	}
+
+	return inventoryPath, data.Outputs["entrypoint"].Value, nil
+}
+
+func runAnsible(options types.AnsibleOptions) error {
+	ansiblePlaybookOptions := &playbook.AnsiblePlaybookOptions{
+		Become:        true,
+		Inventory:     options.InventoryPath,
+		SSHCommonArgs: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+		ExtraVars: map[string]interface{}{
+			"ansible_ssh_private_key_file": filepath.Join(options.ConfigDir, "output", "ssh", "id_rsa"),
+		},
+	}
+
+	timeoutContext, cancel := context.WithTimeout(context.Background(), time.Duration(60)*time.Second)
+	defer cancel()
+
+	playbookCmd := playbook.NewAnsiblePlaybookExecute(filepath.Join(options.AnsiblePath, "playbook.yaml")).
+		WithPlaybookOptions(ansiblePlaybookOptions)
+
+	// Check if requirements.yaml exists before trying to install roles
+	requirementsPath := filepath.Join(options.AnsiblePath, "requirements.yaml")
+	var err error
+	if _, statErr := os.Stat(requirementsPath); statErr == nil {
+		// Requirements file exists, install roles first
+		galaxyInstallRolesCmd := galaxy.NewAnsibleGalaxyRoleInstallCmd(
+			galaxy.WithGalaxyRoleInstallOptions(&galaxy.AnsibleGalaxyRoleInstallOptions{
+				Force:    true,
+				RoleFile: requirementsPath,
+			}),
+		)
+
+		galaxyInstallRolesExec := execute.NewDefaultExecute(
+			execute.WithCmd(galaxyInstallRolesCmd),
+		)
+
+		err = workflow.NewWorkflowExecute(galaxyInstallRolesExec, playbookCmd).
+			WithTrace().
+			Execute(timeoutContext)
+	} else {
+		// No requirements file, just run the playbook
+		err = playbookCmd.Execute(timeoutContext)
+	}
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func initializeTerraform(ctx context.Context, options types.TerraformOptions) (*tfexec.Terraform, error) {
+	log.Debug().Msg("Initializing Terraform")
 	installer := &releases.ExactVersion{
 		Product: product.Terraform,
 		Version: version.Must(version.NewVersion(options.TerraformVersion)),
@@ -239,7 +306,6 @@ func initializeTerraform(ctx context.Context, options types.TerraformOptions) (*
 		tf.SetStderr(os.Stderr)
 	}
 
-	log.Info().Msg("Initializing Terraform...")
 	err = tf.Init(
 		ctx,
 		tfexec.Upgrade(true),
@@ -266,17 +332,18 @@ func generateAllowlistString(allowlist []net.IP) string {
 }
 
 func applyTerraform(ctx context.Context, tf *tfexec.Terraform, options types.TerraformOptions) error {
+	log.Debug().Msg("Applying Terraform")
+
 	allowlist := generateAllowlistString(options.Allowlist)
 
 	os.Setenv("AWS_CONFIG_FILE", options.AWSConfigPath)
 	os.Setenv("AWS_SHARED_CREDENTIALS_FILE", options.AWSCredentialsPath)
 	os.Setenv("AWS_PROFILE", options.AwsProfile)
 	os.Setenv("AWS_REGION", options.AwsRegion)
-
+	// Variables to be used in the Terraform
 	os.Setenv("TF_VAR_allowlist", allowlist)
-	os.Setenv("TF_VAR_output_path", filepath.Join(options.ConfigDir, "output")) // TODO: Have this be the correct ssh path
+	os.Setenv("TF_VAR_output_path", filepath.Join(options.ConfigDir, "output"))
 
-	log.Info().Msg("Applying Terraform...")
 	err := tf.Apply(
 		ctx,
 		tfexec.Refresh(true),
@@ -289,20 +356,6 @@ func applyTerraform(ctx context.Context, tf *tfexec.Terraform, options types.Ter
 		return err
 	}
 	return nil
-}
-
-type Output struct {
-	Value     string `json:"value"`
-	Type      string `json:"type"`
-	Sensitive bool   `json:"sensitive"`
-}
-
-type Outputs struct {
-	Main Output `json:"main"`
-}
-
-type Data struct {
-	Outputs Outputs `json:"outputs"`
 }
 
 // listScenarios lists all the scenarios in the scenarios directory
@@ -345,118 +398,4 @@ func validateScenario(scenario string, scenariosPath string) bool {
 		return false
 	}
 	return true
-}
-
-// AnsibleContainer runs the ansible playbook for the scenario
-func AnsibleContainer(ctx context.Context, options types.ContainerOptions, scenario string, inventoryPath string) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := fmt.Sprintf("vmgoat-ansible-%s", scenario)
-
-	// TODO: Have this be dynamic
-	path := "/Users/aaiken/Private/vmGoat/"
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "alpine/ansible:2.18.1",
-		Name:  containerName,
-		Entrypoint: []string{
-			"sh",
-			"-c",
-		},
-		Args: []string{
-			"ansible-galaxy install -r requirements.yaml && ansible-playbook playbook.yaml",
-		},
-		// Environment: []string{
-		// 	"TF_VAR_aws_profile=" + options.AwsProfile,
-		// },
-		WorkingDir: "/mnt/ansible",
-		Volumes: []handler.VolumeMount{
-			{
-				Source:      filepath.Join(path, "scenarios", scenario, "ansible"),
-				Destination: "/mnt/ansible",
-				ReadOnly:    true,
-			},
-			{
-				Source:      filepath.Join(path, "ansible.cfg"),
-				Destination: "/etc/ansible/ansible.cfg",
-				ReadOnly:    true,
-			},
-			{
-				Source:      inventoryPath,
-				Destination: "/mnt/inventory",
-				ReadOnly:    true,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "ssh"),
-				Destination: "/mnt/ssh",
-				ReadOnly:    true,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
-// WaitForSSH waits for SSH connectivity to be available on all provided IP addresses
-func WaitForSSH(ips []string, timeout time.Duration) error {
-	// Create a channel to receive results from goroutines
-	type result struct {
-		ip    string
-		error error
-	}
-	results := make(chan result, len(ips))
-
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Launch a goroutine for each IP
-	for _, ip := range ips {
-		log.Debug().Msgf("Waiting for SSH on %s", ip)
-		go func(ip string) {
-			for {
-				select {
-				case <-ctx.Done():
-					results <- result{ip: ip, error: fmt.Errorf("timeout waiting for SSH on %s", ip)}
-					return
-				default:
-					// Try to establish TCP connection to port 22
-					conn, err := net.DialTimeout("tcp", ip+":22", 5*time.Second)
-					if err == nil {
-						conn.Close()
-						results <- result{ip: ip, error: nil}
-						return
-					}
-					// Wait a bit before trying again
-					time.Sleep(2 * time.Second)
-				}
-			}
-		}(ip)
-	}
-
-	// Collect results
-	var errors []string
-	for i := 0; i < len(ips); i++ {
-		result := <-results
-		if result.error != nil {
-			errors = append(errors, result.error.Error())
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to connect to some IPs: %s", strings.Join(errors, "; "))
-	}
-
-	return nil
 }
