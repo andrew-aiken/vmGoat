@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/urfave/cli/v3"
 
@@ -18,6 +20,32 @@ var (
 )
 
 func main() {
+	// Set up signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create a channel to receive OS signals
+	sigChan := make(chan os.Signal, 1)
+
+	// Register the channel to receive specific signals
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Start a goroutine to handle signals
+	go func() {
+		sig := <-sigChan
+		log := logger.Get()
+		log.Debug().Msgf("Received signal: %v", sig)
+
+		// Run your cleanup functions here
+		cleanup(ctx)
+
+		// Cancel the context to signal shutdown
+		cancel()
+
+		// Exit gracefully
+		os.Exit(0)
+	}()
+
 	app := &cli.Command{
 		Name:        ProjectName,
 		Version:     Version,
@@ -60,10 +88,9 @@ func main() {
 				},
 			},
 			{
-				Name:    "list",
-				Aliases: []string{"p"},
-				Usage:   "List all scenarios",
-				Action:  cmd.List,
+				Name:   "list",
+				Usage:  "List all scenarios",
+				Action: cmd.List,
 				Flags: []cli.Flag{
 					flags.DeployedScenarios,
 				},
@@ -86,7 +113,7 @@ func main() {
 				Commands: []*cli.Command{
 					{
 						Name:        "aws",
-						Usage:       "Setup AWS profile and region",
+						Usage:       "Set the AWS profile and region",
 						Action:      cmd.ConfigAWS,
 						Description: "Configure static AWS settings for vmGoat. These can still be overridden by the command line flags and environment variables.",
 						Flags: []cli.Flag{
@@ -117,8 +144,18 @@ func main() {
 		},
 	}
 
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := app.Run(ctx, os.Args); err != nil {
 		log := logger.Get()
 		log.Fatal().Err(err).Msg("Application error")
 	}
+}
+
+// cleanup runs any necessary cleanup operations before shutdown
+func cleanup(ctx context.Context) {
+	log := logger.Get()
+	log.Info().Msg("Intercepted interruption signal, starting cleanup...")
+
+	handler.DeleteContainer(ctx, "vmGoat")
+
+	log.Info().Msg("Cleanup completed")
 }

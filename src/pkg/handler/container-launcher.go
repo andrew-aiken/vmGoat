@@ -9,7 +9,6 @@ import (
 )
 
 func LaunchContainerizedVersion(ctx context.Context, cli *cli.Command, homeDir string) error {
-	// debug, _ := ctx.Value("debug").(bool)
 	configDir, _ := ctx.Value("configDirectory").(string)
 
 	containerName := cli.Root().Name
@@ -32,9 +31,7 @@ func LaunchContainerizedVersion(ctx context.Context, cli *cli.Command, homeDir s
 				ReadOnly:    false,
 			},
 		},
-		// If debug is enabled, the container will not be automatically removed
-		// TODO: Might be able to use the same container if the arguments are passed as a file and then dynamically read on startup (ie not a cli tool)
-		AutoRemove: true, //!debug,
+		AutoRemove: true,
 	})
 
 	if err != nil {
