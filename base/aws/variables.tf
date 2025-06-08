@@ -1,13 +1,7 @@
-variable "aws_region" {
+variable "output_path" {
   type        = string
-  default     = "us-east-1"
-  description = "description"
-}
-
-variable "aws_profile" {
-  type        = string
-  default     = ""
-  description = "description"
+  default     = "/mnt/"
+  description = "Path to where persistent data should be stored"
 }
 
 variable "allowlist" {

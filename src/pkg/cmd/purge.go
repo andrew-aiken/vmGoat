@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/urfave/cli/v3"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"infrasec.sh/vmGoat/pkg/handler"
 	"infrasec.sh/vmGoat/pkg/logger"
 	"infrasec.sh/vmGoat/pkg/types"
@@ -15,29 +19,28 @@ import (
 func Purge(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	approve := cli.Bool("auto-approve")
-	var approveInput string
-
-	if approve == false {
-		log.Debug().Msg("Prompting for purge approval")
-		fmt.Print("Type 'Yes' to confirm that you want to destroy everything: ")
-		fmt.Scanln(&approveInput)
-
-		if approveInput != "Yes" {
-			log.Warn().Msg("Purge not approved. Exiting.")
-			return nil
-		}
-		approve = true
-	}
-
 	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
 	configDir, _ := ctx.Value("configDirectory").(string)
 
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
+	projectPath, _ := ctx.Value("projectPath").(string)
+	scenariosPath := filepath.Join(projectPath, "scenarios")
+
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
+
+	deployedScenarios := listDeployedScenarios(config.Config)
+
+	if !(cli.Bool("auto-approve") || approveDestruction(log, deployedScenarios, "purge")) {
+		return nil
 	}
+
+	containerized := cli.Bool("containerized")
+	localExecution := cli.Bool("local")
 
 	// Get user's home directory for AWS credentials
 	homeDir, err := os.UserHomeDir()
@@ -45,58 +48,60 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	if !(containerized || localExecution) {
+		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
+
+	// Setup the configurations that are passed when deploying the Terraform
+	terraformOptions := types.TerraformOptions{
+		Allowlist:          config.IpAddresses,
+		AWSConfigPath:      awsConfigPath,
+		AWSCredentialsPath: awsCredentialsPath,
+		AwsProfile:         config.CliInputs.AwsProfile,
+		AwsRegion:          config.CliInputs.AwsRegion,
+		ConfigDir:          configDir,
+		Destroy:            true,
+		TerraformVersion:   "1.12.0",
 	}
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
-	}
-
-	log.Debug().Msg("Config updated successfully")
-
-	containerOptions := types.ContainerOptions{
-		ConfigDir:  configDir,
-		HomeDir:    homeDir,
-		AwsProfile: awsProfile,
-		AwsRegion:  awsRegion,
-	}
-
-	for _, s := range listDeployedScenarios(config) {
-		log.Info().Msgf("Destroying Scenario: %s", s)
-		// Initialize the scenarios init container
-		if err := LaunchInitScenarioContainer(ctx, containerOptions, s); err != nil {
-			return fmt.Errorf("failed to launch init container: %v", err)
+	// Loop over scenarios and destroy them
+	for _, scenario := range deployedScenarios {
+		terraformOptions.TerraformCodePath = filepath.Join(scenariosPath, scenario, "terraform")
+		terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate")
+		log.Info().Msgf("Destroying Scenario: %s", scenario)
+		tf, err := initializeTerraform(ctx, terraformOptions)
+		if err != nil {
+			return fmt.Errorf("Failed to initialized the scenario %s Terraform: %v", scenario, err)
 		}
-		log.Debug().Msg("Scenario container successfully initialized")
 
-		// Deploy the scenario
-		if err := LaunchScenarioContainer(ctx, containerOptions, "destroy", s); err != nil {
-			return fmt.Errorf("failed to launch base container: %v", err)
+		err = applyTerraform(ctx, tf, terraformOptions)
+		if err != nil {
+			log.Fatal().Msgf("Error destroying the scenario %s: %s", scenario, err)
 		}
-		log.Debug().Msg("Scenario container successfully destroyed")
 
-		delete(config.Scenarios, s)
+		delete(config.Config.Scenarios, scenario)
 	}
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 	log.Debug().Msg("Removed scenarios from the config")
 
-	if err := LaunchInitContainer(ctx, containerOptions); err != nil {
-		return fmt.Errorf("failed to launch init container: %v", err)
+	log.Info().Msg("Removing the base infrastructure")
+
+	terraformOptions.TerraformCodePath = filepath.Join(projectPath, "base", "aws")
+	terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "terraform.tfstate")
+
+	tf, err := initializeTerraform(ctx, terraformOptions)
+	if err != nil {
+		return fmt.Errorf("Failed to initialized the base Terraform: %v", err)
 	}
 
-	if err := LaunchBaseContainer(ctx, containerOptions, "destroy"); err != nil {
-		return fmt.Errorf("failed to launch base container: %v", err)
+	err = applyTerraform(ctx, tf, terraformOptions)
+	if err != nil {
+		log.Fatal().Msgf("Error destroying the base Terraform: %s", err)
 	}
 
 	log.Info().Msg("Base Infrastructure destroyed successfully")
@@ -104,10 +109,20 @@ func Purge(ctx context.Context, cli *cli.Command) error {
 	return nil
 }
 
-func listDeployedScenarios(config types.Config) []string {
-	var scenarios []string
-	for scenario := range config.Scenarios {
-		scenarios = append(scenarios, scenario)
+// Prompt the user for approval before proceeding
+// List the deployed scenario[s] and the action being taken
+func approveDestruction(log logger.Logger, scenarios []string, action string) bool {
+	var approveInput string
+
+	displayDeployedScenarios(log, scenarios)
+
+	log.Debug().Msgf("Prompting for %s approval", action)
+	fmt.Printf("Type 'Yes' to confirm that you want to %s: ", action)
+	fmt.Scanln(&approveInput)
+
+	if approveInput != "Yes" {
+		log.Warn().Msgf("%s not approved. Exiting.", cases.Title(language.English, cases.Compact).String(action))
+		return false
 	}
-	return scenarios
+	return true
 }

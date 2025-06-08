@@ -1,8 +1,15 @@
 - name: Setup gitea gitea user
-  become: true
-  become_user: gitea
   ansible.builtin.command:
-    cmd: gitea admin user create --username {{ gitea_username }} --password {{ gitea_password }} --admin --config /etc/gitea/gitea.ini --email {{ gitea_username }}@gitoops.thm --must-change-password=false
+    cmd: >
+      sudo -u gitea gitea admin user create
+      --username {{ gitea_username }}
+      --password {{ gitea_password }}
+      --admin
+      --config /etc/gitea/gitea.ini
+      --email {{ gitea_username }}@gitoops.thm
+      --must-change-password=false
+  failed_when: result.rc != 0 and "user already exists" not in result.stderr
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -23,6 +30,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -53,6 +62,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "team already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -97,6 +108,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "team already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -133,6 +146,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 409] or (result.status == 409 and "The repository with the same name already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -155,6 +170,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 409] or (result.status == 409 and "The repository with the same name already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -179,6 +196,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "user already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -216,6 +235,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "user already exists" not in result.json.message)
+  register: result
   tags:
     - gitea
     - gitea_oneoffs
@@ -255,6 +276,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "repository file already exists" not in result.json.message)
+  register: result
   vars:
     gitea_repo: public
   tags:
@@ -284,6 +307,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "repository file already exists" not in result.json.message)
+  register: result
   vars:
     gitea_repo: public
   with_items:
@@ -311,6 +336,8 @@
     body_format: json
     return_content: true
     status_code: 201
+  failed_when: result.status not in [201, 422] or (result.status == 422 and "repository file already exists" not in result.json.message)
+  register: result
   vars:
     gitea_repo: private
   with_items:

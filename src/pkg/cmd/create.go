@@ -12,6 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apenella/go-ansible/v2/pkg/execute"
+	"github.com/apenella/go-ansible/v2/pkg/execute/workflow"
+	galaxy_collection "github.com/apenella/go-ansible/v2/pkg/galaxy/collection/install"
+	galaxy "github.com/apenella/go-ansible/v2/pkg/galaxy/role/install"
+	"github.com/apenella/go-ansible/v2/pkg/playbook"
+	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/hc-install/product"
+	"github.com/hashicorp/hc-install/releases"
+	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 
@@ -24,97 +33,137 @@ import (
 func Create(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	scenariosPath := "/Users/aaiken/Private/vmGoat/scenarios"
+	containerized := cli.Bool("containerized")
+	localExecution := cli.Bool("local")
 
-	scenario := cli.Args().First()
-	if !validateScenario(scenario, scenariosPath) {
-		log.Info().Msgf("\nUsage: %s", cli.UsageText)
-		return nil
-	}
-
-	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
-	configDir, _ := ctx.Value("configDirectory").(string)
-
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
-
-	// Get user's home directory for AWS credentials
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
-	// USED FOR LATER
-	// Get current working directory for base path
-	// currentDir, err := os.Getwd()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get current directory: %v", err)
-	// }
-
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	if !(containerized || localExecution) {
+		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	projectPath, _ := ctx.Value("projectPath").(string)
+	scenariosPath := filepath.Join(projectPath, "scenarios")
+	scenario := cli.Args().First()
+
+	if !validateScenario(scenario, scenariosPath) {
+		log.Info().Msgf("\nUsage: %s", cli.UsageText)
+		return nil
 	}
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
+	// Read the config directory from the context
+	configDir, _ := ctx.Value("configDirectory").(string)
+
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
+
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
+
+	// Setup the configurations that are passed when deploying the Terraform
+	terraformOptions := types.TerraformOptions{
+		Allowlist:              config.IpAddresses,
+		AWSConfigPath:          awsConfigPath,
+		AWSCredentialsPath:     awsCredentialsPath,
+		AwsProfile:             config.CliInputs.AwsProfile,
+		AwsRegion:              config.CliInputs.AwsRegion,
+		ConfigDir:              configDir,
+		Destroy:                false,
+		TerraformCodePath:      filepath.Join(projectPath, "base", "aws"),
+		TerraformVersion:       "1.12.0",
+		TerraformStateFilePath: filepath.Join(configDir, "state", "terraform.tfstate"),
 	}
 
-	log.Debug().Msg("Config updated successfully")
-
-	containerOptions := types.ContainerOptions{
-		Allowlist:  config.IpAddresses,
-		ConfigDir:  configDir,
-		HomeDir:    homeDir,
-		AwsProfile: awsProfile,
-		AwsRegion:  awsRegion,
+	log.Info().Msg("Deploying base infrastructure")
+	tf, err := initializeTerraform(ctx, terraformOptions)
+	if err != nil {
+		return fmt.Errorf("Failed to initialize the base Terraform: %v", err)
 	}
 
-	config.Scenarios[scenario] = types.Scenario{
+	err = applyTerraform(ctx, tf, terraformOptions)
+	if err != nil {
+		log.Fatal().Msgf("Error applying Terraform: %s", err)
+	}
+
+	log.Debug().Msg("Base resources successfully deployed")
+
+	// Deploy Scenario
+	log.Info().Msg("Deploying scenario infrastructure")
+
+	// Update the Terraform path options for the scenario
+	terraformOptions.TerraformCodePath = filepath.Join(scenariosPath, scenario, "terraform")
+	terraformOptions.TerraformStateFilePath = filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate")
+
+	tf, err = initializeTerraform(ctx, terraformOptions)
+	if err != nil {
+		return fmt.Errorf("Failed to initialize the base Terraform: %v", err)
+	}
+
+	err = applyTerraform(ctx, tf, terraformOptions)
+	if err != nil {
+		log.Fatal().Msgf("Error applying Terraform: %s", err)
+	}
+	log.Debug().Msg("Scenario resources successfully deployed")
+
+	config.Config.Scenarios[scenario] = types.Scenario{
 		Provider: "aws",
-		Path:     "tmp",
+		Path:     filepath.Join(projectPath, "scenarios", scenario),
 	}
 
-	if err := LaunchInitContainer(ctx, containerOptions); err != nil {
-		return fmt.Errorf("failed to launch init container: %v", err)
-	}
-	log.Debug().Msg("Base container successfully initialized")
-
-	if err := LaunchBaseContainer(ctx, containerOptions, "apply"); err != nil {
-		return fmt.Errorf("failed to launch base container: %v", err)
-	}
-	log.Debug().Msg("Base container successfully launched")
-
-	// Initialize the scenarios init container
-	if err := LaunchInitScenarioContainer(ctx, containerOptions, scenario); err != nil {
-		return fmt.Errorf("failed to launch init container: %v", err)
-	}
-	log.Debug().Msg("Scenario container successfully initialized")
-
-	// Deploy the scenario
-	if err := LaunchScenarioContainer(ctx, containerOptions, "apply", scenario); err != nil {
-		return fmt.Errorf("failed to launch base container: %v", err)
-	}
-	log.Debug().Msg("Scenario container successfully launched")
-
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 	log.Debug().Msg("Config updated successfully with scenario")
 
-	// Ansible
-	statePath := filepath.Join(configDir, "state", "scenario", scenario, "scenario.tfstate")
+	ansiblePath := filepath.Join(scenariosPath, scenario, "ansible")
 
-	file, err := os.Open(statePath)
+	// Create a temporary directory for Ansible files
+	temporaryDirectory, err := os.MkdirTemp("", "vmgoat-ansible-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(temporaryDirectory)
+
+	log.Debug().Msgf("Temporary directory created: %s", temporaryDirectory)
+
+	// Generate the Ansible inventory file with IP addresses from the Terraform state file
+	inventoryPath, entrypoint, serverIps, err := generateAnsibleInventory(types.AnsibleInventoryOptions{
+		ScenarioAnsiblePath: ansiblePath,
+		ScenarioStatePath:   terraformOptions.TerraformStateFilePath,
+		TemporaryDirPath:    temporaryDirectory,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to generate Ansible inventory: %v", err)
+	}
+
+	// Wait up to 60 seconds for SSH to be available
+	if waitForSSH(serverIps, 60*time.Second) != nil {
+		return fmt.Errorf("failed to wait for SSH: %v", err)
+	}
+
+	// Run the Ansible playbook
+	if runAnsible(ctx, types.AnsibleOptions{
+		AnsiblePath:   ansiblePath,
+		ConfigDir:     configDir,
+		InventoryPath: inventoryPath,
+	}) != nil {
+		return fmt.Errorf("failed to run Ansible playbook: %v", err)
+	}
+
+	log.Info().Msgf("Entrypoint: %s", entrypoint)
+
+	return nil
+}
+
+func generateAnsibleInventory(options types.AnsibleInventoryOptions) (inventory string, entrypoint string, ips []string, error error) {
+	file, err := os.Open(options.ScenarioStatePath)
 	if err != nil {
 		panic(err)
 	}
@@ -122,7 +171,7 @@ func Create(ctx context.Context, cli *cli.Command) error {
 
 	// Parse the raw structure into a map
 	var data struct {
-		Outputs map[string]Output `json:"outputs"`
+		Outputs map[string]types.TerraformOutput `json:"outputs"`
 	}
 
 	decoder := json.NewDecoder(file)
@@ -130,35 +179,21 @@ func Create(ctx context.Context, cli *cli.Command) error {
 		panic(err)
 	}
 
-	// // Loop through keys and print them
-	// for key, output := range data.Outputs {
-	// 	fmt.Printf("Key: %s, Value: %s\n", key, output.Value)
-	// }
-
-	// Create a temporary directory for Ansible files
-	tmpDir, err := os.MkdirTemp("", "vmgoat-ansible-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	log.Debug().Msgf("Temporary directory created: %s", tmpDir)
-
 	// Copy inventory template to temp directory
-	srcPath := filepath.Join(scenariosPath, scenario, "ansible", "inventory.tmpl")
-	dstPath := filepath.Join(tmpDir, "inventory")
+	srcPath := filepath.Join(options.ScenarioAnsiblePath, "inventory.tmpl")
+	inventoryPath := filepath.Join(options.TemporaryDirPath, "inventory")
 
 	// Copy the file using io.Copy
 	src, err := os.Open(srcPath)
 	if err != nil {
-		return fmt.Errorf("failed to open source file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to open source file: %v", err)
 	}
 	defer src.Close()
 
 	// Read the entire file content
 	content, err := io.ReadAll(src)
 	if err != nil {
-		return fmt.Errorf("failed to read source file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to read source file: %v", err)
 	}
 
 	// Convert to string for replacement
@@ -177,44 +212,146 @@ func Create(ctx context.Context, cli *cli.Command) error {
 	log.Debug().Msgf("Modified content: %s", tmpl)
 
 	// Create the destination file
-	dst, err := os.Create(dstPath)
+	dst, err := os.Create(inventoryPath)
 	if err != nil {
-		return fmt.Errorf("failed to create destination file: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to create destination file: %v", err)
 	}
 	defer dst.Close()
 
 	// Write the modified content to the destination file
 	if _, err := dst.Write([]byte(tmpl)); err != nil {
-		return fmt.Errorf("failed to write modified content: %v", err)
+		return "", "", []string{}, fmt.Errorf("failed to write modified content: %v", err)
 	}
 
-	if err := WaitForSSH(serverIps, 60*time.Second); err != nil {
-		return fmt.Errorf("failed to wait for SSH: %v", err)
+	return inventoryPath, data.Outputs["entrypoint"].Value, serverIps, nil
+}
+
+func runAnsible(ctx context.Context, options types.AnsibleOptions) error {
+	ansiblePlaybookOptions := &playbook.AnsiblePlaybookOptions{
+		Become:        true,
+		Inventory:     options.InventoryPath,
+		SSHCommonArgs: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+		ExtraVars: map[string]interface{}{
+			"ansible_ssh_private_key_file": filepath.Join(options.ConfigDir, "output", "ssh", "id_rsa"),
+		},
 	}
 
-	if err := AnsibleContainer(ctx, containerOptions, scenario, dstPath); err != nil {
-		return fmt.Errorf("failed to launch ansible container: %v", err)
+	playbookCmd := playbook.NewAnsiblePlaybookExecute(filepath.Join(options.AnsiblePath, "playbook.yaml")).
+		WithPlaybookOptions(ansiblePlaybookOptions)
+
+	// Check if requirements.yaml exists before trying to install roles
+	requirementsPath := filepath.Join(options.AnsiblePath, "requirements.yaml")
+
+	var err error
+	if _, statErr := os.Stat(requirementsPath); statErr == nil {
+		// Requirements file exists, install roles first
+		galaxyInstallRolesCmd := galaxy.NewAnsibleGalaxyRoleInstallCmd(
+			galaxy.WithGalaxyRoleInstallOptions(&galaxy.AnsibleGalaxyRoleInstallOptions{
+				Force:    true,
+				RoleFile: requirementsPath,
+			}),
+		)
+
+		galaxyInstallRolesExec := execute.NewDefaultExecute(
+			execute.WithCmd(galaxyInstallRolesCmd),
+		)
+
+		galaxyInstallCollectionCmd := galaxy_collection.NewAnsibleGalaxyCollectionInstallCmd(
+			galaxy_collection.WithGalaxyCollectionInstallOptions(&galaxy_collection.AnsibleGalaxyCollectionInstallOptions{
+				Force:            true,
+				Upgrade:          true,
+				RequirementsFile: requirementsPath,
+			}),
+		)
+
+		galaxyInstallCollectionExec := execute.NewDefaultExecute(
+			execute.WithCmd(galaxyInstallCollectionCmd),
+		)
+
+		err = workflow.NewWorkflowExecute(galaxyInstallCollectionExec, galaxyInstallRolesExec, playbookCmd).
+			WithTrace().
+			Execute(ctx)
+	} else {
+		// No requirements file, just run the playbook
+		err = playbookCmd.Execute(ctx)
 	}
-	log.Debug().Msg("Scenario configured with Ansible successfully")
 
-	log.Info().Msgf("deployed infrastructure: %s", scenario)
+	return err
+}
 
-	log.Info().Msgf("Entrypoint:\n%s", data.Outputs["entrypoint"].Value)
+func initializeTerraform(ctx context.Context, options types.TerraformOptions) (*tfexec.Terraform, error) {
+	log.Debug().Msg("Initializing Terraform")
+	installer := &releases.ExactVersion{
+		Product: product.Terraform,
+		Version: version.Must(version.NewVersion(options.TerraformVersion)),
+	}
+
+	execPath, err := installer.Install(ctx)
+	if err != nil {
+		log.Fatal().Msgf("error installing Terraform: %s", err)
+	}
+
+	tf, err := tfexec.NewTerraform(options.TerraformCodePath, execPath)
+	if err != nil {
+		log.Fatal().Msgf("error setting up go terraform client: %s", err)
+	}
+
+	debug, _ := ctx.Value("debug").(bool)
+	if debug {
+		tf.SetStdout(os.Stdout)
+		tf.SetStderr(os.Stderr)
+	}
+
+	err = tf.Init(
+		ctx,
+		tfexec.Upgrade(true),
+		tfexec.Reconfigure(true),
+	)
+
+	if err != nil {
+		log.Fatal().Msgf("error running Init: %s", err)
+	}
+
+	return tf, nil
+}
+
+// Converts a list of IPs to a json list string of the IPs
+func generateAllowlistString(allowlist []net.IP) string {
+	allowlistStrings := make([]string, len(allowlist))
+	for i, ip := range allowlist {
+		allowlistStrings[i] = fmt.Sprintf("\"%s\"", ip.String())
+	}
+	allowlistString := "[" + strings.Join(allowlistStrings, ", ") + "]"
+
+	log.Debug().Msgf("Allowlist: %s", allowlistString)
+	return allowlistString
+}
+
+func applyTerraform(ctx context.Context, tf *tfexec.Terraform, options types.TerraformOptions) error {
+	log.Debug().Msg("Applying Terraform")
+
+	allowlist := generateAllowlistString(options.Allowlist)
+
+	os.Setenv("AWS_CONFIG_FILE", options.AWSConfigPath)
+	os.Setenv("AWS_SHARED_CREDENTIALS_FILE", options.AWSCredentialsPath)
+	os.Setenv("AWS_PROFILE", options.AwsProfile)
+	os.Setenv("AWS_REGION", options.AwsRegion)
+	// Variables to be used in the Terraform
+	os.Setenv("TF_VAR_allowlist", allowlist)
+	os.Setenv("TF_VAR_output_path", filepath.Join(options.ConfigDir, "output"))
+
+	err := tf.Apply(
+		ctx,
+		tfexec.Refresh(true),
+		tfexec.State(options.TerraformStateFilePath), // TODO: See if there is a modern way to do this
+		tfexec.StateOut(options.TerraformStateFilePath),
+		tfexec.Destroy(options.Destroy),
+	)
+
+	if err != nil {
+		return err
+	}
 	return nil
-}
-
-type Output struct {
-	Value     string `json:"value"`
-	Type      string `json:"type"`
-	Sensitive bool   `json:"sensitive"`
-}
-
-type Outputs struct {
-	Main Output `json:"main"`
-}
-
-type Data struct {
-	Outputs Outputs `json:"outputs"`
 }
 
 // listScenarios lists all the scenarios in the scenarios directory
@@ -234,216 +371,6 @@ func listScenarios(path string) ([]string, error) {
 	return scenarios, nil
 }
 
-// LaunchInitContainer launches the init container that initializes the shared Terraform configuration
-func LaunchInitContainer(ctx context.Context, options types.ContainerOptions) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := "vmgoat-terraform-base-init"
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "hashicorp/terraform:latest",
-		Name:  containerName,
-		Args: []string{
-			"init",
-			"--reconfigure",
-			"--upgrade",
-		},
-		WorkingDir: "/mnt/base/aws",
-		Volumes: []handler.VolumeMount{
-			{
-				// TODO switch this to by in the current working directory
-				// Source:      filepath.Join(currentDir, "base", "aws"),
-				Source:      "/Users/aaiken/Private/vmGoat/base/aws",
-				Destination: "/mnt/base/aws",
-				ReadOnly:    false,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "state"),
-				Destination: "/mnt/state",
-				ReadOnly:    false,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
-// LaunchBaseContainer launches the base container that deploys infrastructure shared across all scenarios
-func LaunchBaseContainer(ctx context.Context, options types.ContainerOptions, cmd string) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := fmt.Sprintf("vmgoat-terraform-base-%s", cmd)
-
-	allowlistStrings := make([]string, len(options.Allowlist))
-	for i, ip := range options.Allowlist {
-		allowlistStrings[i] = fmt.Sprintf("\"%s\"", ip.String())
-	}
-	allowlistString := "[" + strings.Join(allowlistStrings, ", ") + "]"
-
-	log.Debug().Msgf("Allowlist: %s", allowlistString)
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "hashicorp/terraform:latest",
-		Name:  containerName,
-		Environment: []string{
-			"TF_VAR_aws_profile=" + options.AwsProfile,
-			"TF_VAR_aws_region=" + options.AwsRegion,
-			"TF_VAR_allowlist=" + allowlistString,
-		},
-		Args: []string{
-			cmd,
-			"--auto-approve",
-		},
-		WorkingDir: "/mnt/base/aws",
-		Volumes: []handler.VolumeMount{
-			{
-				Source:      filepath.Join(options.HomeDir, ".aws"),
-				Destination: "/mnt/aws",
-				ReadOnly:    true,
-			},
-			{
-				// TODO switch this to by in the current working directory
-				// Source:      filepath.Join(currentDir, "base", "aws"),
-				Source:      "/Users/aaiken/Private/vmGoat/base/aws",
-				Destination: "/mnt/base/aws",
-				ReadOnly:    false,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "state"),
-				Destination: "/mnt/state",
-				ReadOnly:    false,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "ssh"),
-				Destination: "/mnt/ssh",
-				ReadOnly:    false,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
-// LaunchInitScenarioContainer launches the init container that initializes a individual scenario
-func LaunchInitScenarioContainer(ctx context.Context, options types.ContainerOptions, scenario string) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := fmt.Sprintf("vmgoat-terraform-scenario-%s-init", scenario)
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "hashicorp/terraform:latest",
-		Name:  containerName,
-		Args: []string{
-			"init",
-			"--reconfigure",
-			"--upgrade",
-		},
-		WorkingDir: fmt.Sprintf("/mnt/scenario/%s", scenario),
-		Volumes: []handler.VolumeMount{
-			{
-				// TODO switch this to by in the current working directory
-				// Source:      filepath.Join(currentDir, "base", "aws"),
-				Source:      fmt.Sprintf("/Users/aaiken/Private/vmGoat/scenarios/%s/terraform", scenario),
-				Destination: fmt.Sprintf("/mnt/scenario/%s", scenario),
-				ReadOnly:    false,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "state", "scenario", scenario),
-				Destination: "/mnt/state",
-				ReadOnly:    false,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
-// LaunchScenarioContainer launches the scenario container that deploys its infrastructure
-func LaunchScenarioContainer(ctx context.Context, options types.ContainerOptions, cmd string, scenario string) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := fmt.Sprintf("vmgoat-terraform-scenario-%s-%s", scenario, cmd)
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "hashicorp/terraform:latest",
-		Name:  containerName,
-		Environment: []string{
-			"TF_VAR_aws_profile=" + options.AwsProfile,
-			"TF_VAR_aws_region=" + options.AwsRegion,
-		},
-		Args: []string{
-			cmd,
-			"--auto-approve",
-		},
-		WorkingDir: fmt.Sprintf("/mnt/scenario/%s", scenario),
-		Volumes: []handler.VolumeMount{
-			{
-				Source:      filepath.Join(options.HomeDir, ".aws"),
-				Destination: "/mnt/aws",
-				ReadOnly:    true,
-			},
-			{
-				// TODO switch this to by in the current working directory
-				// Source:      filepath.Join(currentDir, "base", "aws"),
-				Source:      fmt.Sprintf("/Users/aaiken/Private/vmGoat/scenarios/%s/terraform", scenario),
-				Destination: fmt.Sprintf("/mnt/scenario/%s", scenario),
-				ReadOnly:    false,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "state", "scenario", scenario),
-				Destination: "/mnt/state",
-				ReadOnly:    false,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
 func validateScenario(scenario string, scenariosPath string) bool {
 	invalidScenario := false
 
@@ -453,6 +380,11 @@ func validateScenario(scenario string, scenariosPath string) bool {
 	}
 
 	scenarios, _ := listScenarios(scenariosPath)
+
+	if len(scenarios) == 0 {
+		log.Warn().Msg("No scenarios found in the scenarios directory, please confirm you are running in the correct directory")
+		return false
+	}
 
 	if !slices.Contains(scenarios, scenario) {
 		invalidScenario = true
@@ -469,69 +401,8 @@ func validateScenario(scenario string, scenariosPath string) bool {
 	return true
 }
 
-// AnsibleContainer runs the ansible playbook for the scenario
-func AnsibleContainer(ctx context.Context, options types.ContainerOptions, scenario string, inventoryPath string) error {
-	debug, _ := ctx.Value("debug").(bool)
-
-	containerName := fmt.Sprintf("vmgoat-ansible-%s", scenario)
-
-	// TODO: Have this be dynamic
-	path := "/Users/aaiken/Private/vmGoat/"
-
-	err := handler.LaunchContainer(ctx, handler.ContainerConfig{
-		Image: "alpine/ansible:2.18.1",
-		Name:  containerName,
-		Entrypoint: []string{
-			"sh",
-			"-c",
-		},
-		Args: []string{
-			"ansible-galaxy install -r requirements.yaml && ansible-playbook playbook.yaml",
-		},
-		// Environment: []string{
-		// 	"TF_VAR_aws_profile=" + options.AwsProfile,
-		// },
-		WorkingDir: "/mnt/ansible",
-		Volumes: []handler.VolumeMount{
-			{
-				Source:      filepath.Join(path, "scenarios", scenario, "ansible"),
-				Destination: "/mnt/ansible",
-				ReadOnly:    true,
-			},
-			{
-				Source:      filepath.Join(path, "ansible.cfg"),
-				Destination: "/etc/ansible/ansible.cfg",
-				ReadOnly:    true,
-			},
-			{
-				Source:      inventoryPath,
-				Destination: "/mnt/inventory",
-				ReadOnly:    true,
-			},
-			{
-				Source:      filepath.Join(options.ConfigDir, "ssh"),
-				Destination: "/mnt/ssh",
-				ReadOnly:    true,
-			},
-		},
-		// If debug is enabled, the container will not be automatically removed
-		AutoRemove: !debug,
-	})
-
-	if err != nil {
-		return fmt.Errorf("Failed to launch container: %s", err)
-	}
-
-	// Get and print container logs
-	err = handler.GetContainerLogs(ctx, containerName)
-	if err != nil {
-		return fmt.Errorf("Failed to get container logs: %s", err)
-	}
-	return nil
-}
-
 // WaitForSSH waits for SSH connectivity to be available on all provided IP addresses
-func WaitForSSH(ips []string, timeout time.Duration) error {
+func waitForSSH(ips []string, timeout time.Duration) error {
 	// Create a channel to receive results from goroutines
 	type result struct {
 		ip    string

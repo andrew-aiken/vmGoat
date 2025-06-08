@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/docker/docker/api/types"
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 
 	"infrasec.sh/vmGoat/pkg/logger"
 )
@@ -57,12 +59,12 @@ func NewDockerContainer() (*DockerContainer, error) {
 }
 
 // PullImage pulls a Docker image with progress reporting
-func (d *DockerContainer) PullImage(ctx context.Context, image string) error {
+func (d *DockerContainer) PullImage(ctx context.Context, imageName string) error {
 	log := logger.Get()
-	log.Info().Str("image", image).Msg("Pulling Docker image")
+	log.Info().Str("image", imageName).Msg("Pulling Docker image")
 
 	// Pull the image
-	reader, err := d.client.ImagePull(ctx, image, types.ImagePullOptions{})
+	reader, err := d.client.ImagePull(ctx, imageName, image.PullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %v", err)
 	}
@@ -74,19 +76,19 @@ func (d *DockerContainer) PullImage(ctx context.Context, image string) error {
 		return fmt.Errorf("error while pulling image: %v", err)
 	}
 
-	log.Info().Str("image", image).Msg("Successfully pulled Docker image")
+	log.Info().Str("image", imageName).Msg("Successfully pulled Docker image")
 	return nil
 }
 
 // EnsureImageExists checks if the image exists locally and pulls it if necessary
 func (d *DockerContainer) EnsureImageExists(ctx context.Context, image string) error {
 	// Check if image exists locally
-	_, _, err := d.client.ImageInspectWithRaw(ctx, image)
+	_, err := d.client.ImageInspect(ctx, image)
 	if err == nil {
 		return nil // Image exists locally
 	}
 
-	if client.IsErrNotFound(err) {
+	if errdefs.IsNotFound(err) {
 		// Image doesn't exist, pull it
 		return d.PullImage(ctx, image)
 	}
@@ -143,11 +145,11 @@ func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) er
 	}
 
 	// Start the container
-	if err := d.client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := d.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %v", err)
 	}
 
-	log.Info().
+	log.Debug().
 		Str("container_id", resp.ID).
 		Str("name", config.Name).
 		Msg("Container started successfully")
@@ -163,14 +165,14 @@ func (d *DockerContainer) Stop(ctx context.Context, containerID string) error {
 
 // Remove removes a container
 func (d *DockerContainer) Remove(ctx context.Context, containerID string) error {
-	return d.client.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{
+	return d.client.ContainerRemove(ctx, containerID, container.RemoveOptions{
 		Force: true,
 	})
 }
 
 // GetLogs retrieves container logs
 func (d *DockerContainer) GetLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
-	return d.client.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
+	return d.client.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -195,7 +197,7 @@ func DeleteContainer(ctx context.Context, containerName string) error {
 	}
 
 	// Get container ID by name
-	containers, err := docker.client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return fmt.Errorf("failed to list containers: %v", err)
 	}
@@ -227,17 +229,13 @@ func DeleteContainer(ctx context.Context, containerName string) error {
 
 // GetContainerLogs is a helper function to get container logs by name
 func GetContainerLogs(ctx context.Context, containerName string) error {
-	// if zerolog.GlobalLevel() > zerolog.DebugLevel {
-	// 	return nil
-	// }
-
 	docker, err := NewDockerContainer()
 	if err != nil {
 		return err
 	}
 
 	// Get container ID by name
-	containers, err := docker.client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return fmt.Errorf("failed to list containers: %v", err)
 	}
@@ -259,15 +257,20 @@ func GetContainerLogs(ctx context.Context, containerName string) error {
 		return fmt.Errorf("container %s not found", containerName)
 	}
 
-	// Get logs
-	logs, err := docker.GetLogs(ctx, containerID)
+	// Get logs without timestamps
+	logs, err := docker.client.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get container logs: %v", err)
 	}
 	defer logs.Close()
 
-	// Stream logs to stdout
-	_, err = io.Copy(os.Stdout, logs)
+	// Demultiplex Docker logs to remove binary headers and properly separate stdout/stderr
+	_, err = stdcopy.StdCopy(os.Stdout, os.Stderr, logs)
 	if err != nil {
 		return fmt.Errorf("failed to stream container logs: %v", err)
 	}

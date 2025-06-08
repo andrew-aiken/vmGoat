@@ -17,7 +17,7 @@ resource "aws_internet_gateway" "this" {
 
 
 resource "aws_subnet" "public_subnet_a" {
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = "${data.aws_region.this.id}a"
   cidr_block              = cidrsubnet(aws_vpc.this.cidr_block, 8, 0)
   vpc_id                  = aws_vpc.this.id
   map_public_ip_on_launch = true
@@ -28,7 +28,7 @@ resource "aws_subnet" "public_subnet_a" {
 }
 
 resource "aws_subnet" "public_subnet_b" {
-  availability_zone       = "${var.aws_region}b"
+  availability_zone       = "${data.aws_region.this.id}b"
   cidr_block              = cidrsubnet(aws_vpc.this.cidr_block, 8, 1)
   vpc_id                  = aws_vpc.this.id
   map_public_ip_on_launch = true
@@ -40,7 +40,7 @@ resource "aws_subnet" "public_subnet_b" {
 
 
 resource "aws_subnet" "private_subnet_a" {
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = "${data.aws_region.this.id}a"
   cidr_block              = cidrsubnet(aws_vpc.this.cidr_block, 8, 128)
   vpc_id                  = aws_vpc.this.id
   map_public_ip_on_launch = false
@@ -51,7 +51,7 @@ resource "aws_subnet" "private_subnet_a" {
 }
 
 resource "aws_subnet" "private_subnet_b" {
-  availability_zone       = "${var.aws_region}b"
+  availability_zone       = "${data.aws_region.this.id}b"
   cidr_block              = cidrsubnet(aws_vpc.this.cidr_block, 8, 129)
   vpc_id                  = aws_vpc.this.id
   map_public_ip_on_launch = false

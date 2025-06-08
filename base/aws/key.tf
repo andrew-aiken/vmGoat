@@ -12,12 +12,12 @@ resource "aws_key_pair" "this" {
 
 resource "local_file" "private_key" {
   content         = tls_private_key.rsa.private_key_pem
-  filename        = "/mnt/ssh/id_rsa"
+  filename        = "${var.output_path}/ssh/id_rsa"
   file_permission = "0600"
 }
 
 resource "local_file" "public_key" {
   content         = tls_private_key.rsa.public_key_openssh
-  filename        = "/mnt/ssh/id_rsa.pub"
+  filename        = "${var.output_path}/ssh/id_rsa.pub"
   file_permission = "0600"
 }

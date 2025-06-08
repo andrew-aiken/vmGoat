@@ -17,10 +17,45 @@ type Scenario struct {
 	Path     string `yaml:"path"`
 }
 
-type ContainerOptions struct {
-	Allowlist  []net.IP
-	ConfigDir  string
-	HomeDir    string
+type TerraformOptions struct {
+	Allowlist              []net.IP
+	AWSConfigPath          string
+	AWSCredentialsPath     string
+	AwsProfile             string
+	AwsRegion              string
+	ConfigDir              string
+	Destroy                bool
+	TerraformCodePath      string
+	TerraformStateFilePath string
+	TerraformVersion       string
+}
+
+type AnsibleInventoryOptions struct {
+	ScenarioAnsiblePath string
+	ScenarioStatePath   string
+	TemporaryDirPath    string
+}
+
+type AnsibleOptions struct {
+	AnsiblePath   string
+	ConfigDir     string
+	InventoryPath string
+}
+
+type TerraformOutput struct {
+	Value     string `json:"value"`
+	Type      string `json:"type"`
+	Sensitive bool   `json:"sensitive"`
+}
+
+type ValidateConfigInputs struct {
+	CliInputs       CliInputs
+	ConfigDirectory string
+	IpAddresses     []net.IP `yaml:"ip-addresses"`
+	Config          Config
+}
+
+type CliInputs struct {
 	AwsProfile string
 	AwsRegion  string
 }

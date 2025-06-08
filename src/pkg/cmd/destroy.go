@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/urfave/cli/v3"
 	"infrasec.sh/vmGoat/pkg/handler"
@@ -15,37 +16,8 @@ import (
 func Destroy(ctx context.Context, cli *cli.Command) error {
 	log := logger.Get()
 
-	scenariosPath := "/Users/aaiken/Private/vmGoat/scenarios"
-
-	scenario := cli.Args().First()
-	if !validateScenario(scenario, scenariosPath) {
-		log.Info().Msgf("\nUsage: %s", cli.UsageText)
-		return nil
-	}
-
-	approve := cli.Bool("auto-approve")
-	var approveInput string
-
-	if approve == false {
-		log.Debug().Msg("Prompting for destroy approval")
-		fmt.Printf("Type 'Yes' to confirm that you want to destroy the %s scenario: ", scenario)
-		fmt.Scanln(&approveInput)
-
-		if approveInput != "Yes" {
-			log.Warn().Msg("Destroy not approved. Exiting.")
-			return nil
-		}
-		approve = true
-	}
-
-	// Read the config directory from the context.
-	// This should be under the home directory of the user. (`~/.config/vmgoat`)
-	configDir, _ := ctx.Value("configDirectory").(string)
-
-	config, err := handler.ReadConfig(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %v", err)
-	}
+	containerized := cli.Bool("containerized")
+	localExecution := cli.Bool("local")
 
 	// Get user's home directory for AWS credentials
 	homeDir, err := os.UserHomeDir()
@@ -53,46 +25,64 @@ func Destroy(ctx context.Context, cli *cli.Command) error {
 		return fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
-	awsProfile := cli.String("aws-profile")
-	awsRegion := cli.String("aws-region")
-
-	if err := handler.ResolveConfigValue(&awsProfile, &config.AWS.Profile); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	if !(containerized || localExecution) {
+		return handler.LaunchContainerizedVersion(ctx, cli, homeDir)
 	}
 
-	if err := handler.ResolveConfigValue(&awsRegion, &config.AWS.Region); err != nil {
-		return fmt.Errorf("failed to resolve AWS profile: %v", err)
+	projectPath, _ := ctx.Value("projectPath").(string)
+	scenariosPath := filepath.Join(projectPath, "scenarios")
+	scenario := cli.Args().First()
+
+	if !validateScenario(scenario, scenariosPath) {
+		log.Info().Msgf("\nUsage: %s", cli.UsageText)
+		return nil
 	}
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
-		return err
+	if !(cli.Bool("auto-approve") || approveDestruction(log, []string{scenario}, "destroy")) {
+		return nil
 	}
 
-	log.Debug().Msg("Config updated successfully")
+	// Read the config directory from the context
+	configDir, _ := ctx.Value("configDirectory").(string)
 
-	containerOptions := types.ContainerOptions{
-		ConfigDir:  configDir,
-		HomeDir:    homeDir,
-		AwsProfile: awsProfile,
-		AwsRegion:  awsRegion,
+	config, err := handler.ValidateConfigInitiator(types.ValidateConfigInputs{
+		CliInputs: types.CliInputs{
+			AwsProfile: cli.String("aws-profile"),
+			AwsRegion:  cli.String("aws-region"),
+		},
+		ConfigDirectory: configDir,
+	})
+
+	awsConfigPath, awsCredentialsPath := handler.AwsPathLocation(homeDir, (containerized && !localExecution))
+
+	// Setup the configurations that are passed when deploying the Terraform
+	terraformOptions := types.TerraformOptions{
+		Allowlist:              config.IpAddresses,
+		AWSConfigPath:          awsConfigPath,
+		AWSCredentialsPath:     awsCredentialsPath,
+		AwsProfile:             config.CliInputs.AwsProfile,
+		AwsRegion:              config.CliInputs.AwsRegion,
+		ConfigDir:              configDir,
+		Destroy:                true,
+		TerraformCodePath:      filepath.Join(scenariosPath, scenario, "terraform"),
+		TerraformVersion:       "1.12.0",
+		TerraformStateFilePath: filepath.Join(configDir, "state", "scenario", scenario, "terraform.tfstate"),
 	}
 
 	log.Info().Msgf("Destroying Scenario: %s", scenario)
-	// Initialize the scenarios init container
-	if err := LaunchInitScenarioContainer(ctx, containerOptions, scenario); err != nil {
-		return fmt.Errorf("failed to launch init container: %v", err)
+	tf, err := initializeTerraform(ctx, terraformOptions)
+	if err != nil {
+		return fmt.Errorf("Failed to initialized the scenario %s Terraform: %v", scenario, err)
 	}
-	log.Debug().Msg("Scenario container successfully initialized")
 
-	// Deploy the scenario
-	if err := LaunchScenarioContainer(ctx, containerOptions, "destroy", scenario); err != nil {
-		return fmt.Errorf("failed to launch base container: %v", err)
+	err = applyTerraform(ctx, tf, terraformOptions)
+	if err != nil {
+		log.Fatal().Msgf("Error destroying the scenario %s: %s", scenario, err)
 	}
-	log.Debug().Msg("Scenario container successfully destroyed")
 
-	delete(config.Scenarios, scenario)
+	delete(config.Config.Scenarios, scenario)
 
-	if err := handler.WriteConfig(configDir, config); err != nil {
+	if err := handler.WriteConfig(configDir, config.Config); err != nil {
 		return err
 	}
 
