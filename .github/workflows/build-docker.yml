@@ -49,6 +49,7 @@ jobs:
           type=raw,value=latest
         labels: |
           org.opencontainers.image.description=VMGoat is a tool for deploying security scenarios in virtual machines.
+          annotation-index.org.opencontainers.image.description=Test for multi-arch
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
