@@ -36,29 +36,29 @@ jobs:
 
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
+          type=schedule
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
           type=raw,value=latest
         labels: |
           org.opencontainers.image.description=VMGoat is a tool for deploying security scenarios in virtual machines.
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
+        platforms: linux/amd64,linux/arm64
         context: .
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-# Only works with public repositories
-    # - name: Generate artifact attestation
-    #   if: github.event_name != 'pull_request'
-    #   uses: actions/attest-build-provenance@v1
-    #   with:
-    #     subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
-    #     subject-digest: ${{ steps.build.outputs.digest }}
-    #     push-to-registry: true
+      env:
+        SOURCE_DATE_EPOCH: 0
