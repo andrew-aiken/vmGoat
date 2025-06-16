@@ -70,19 +70,38 @@ jobs:
         # Get the current release body
         RELEASE_BODY=$(gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }} --jq .body)
         
-        # Prepare Docker image information
-        DOCKER_INFO="## Docker Images\n\nPull the image using:\n\`\`\`bash\n"
-        # Add each tag from metadata
-        echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
-          DOCKER_INFO="${DOCKER_INFO}docker pull ${tag}\n"
-        done
-        DOCKER_INFO="${DOCKER_INFO}\`\`\`\n\nSupported architectures: linux/amd64, linux/arm64"
+        # Create temporary file for Docker info
+        DOCKER_INFO=$(mktemp)
+        
+        # Write Docker information to temp file
+        {
+          echo "## Docker Images"
+          echo
+          echo "Pull the image using:"
+          echo '```bash'
+          # Add each tag from metadata
+          echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
+            echo "docker pull $tag"
+          done
+          echo '```'
+          echo
+          echo "Supported architectures: linux/amd64, linux/arm64"
+        } > "$DOCKER_INFO"
         
         # Combine existing release body with Docker information
-        FULL_BODY="${RELEASE_BODY}\n\n${DOCKER_INFO}"
+        # Ensure there's a blank line between existing content and new content
+        if [ -n "$RELEASE_BODY" ]; then
+          FULL_BODY="${RELEASE_BODY}\n\n
+          
+$(cat "$DOCKER_INFO")"
+        else
+          FULL_BODY="$(cat "$DOCKER_INFO")"
+        fi
         
         # Update the release
         gh api \
           --method PATCH \
           repos/${{ github.repository }}/releases/${{ github.event.release.id }} \
-          -f body="${FULL_BODY}"
+          -f body="$FULL_BODY"
+        
+        rm -f "$DOCKER_INFO"
