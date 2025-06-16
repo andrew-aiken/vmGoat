@@ -1,8 +1,6 @@
 name: Build Docker Image
 
 on:
-  push:
-    branches: [ gh-action-test ]
   pull_request:
     branches: [ main ]
   release:

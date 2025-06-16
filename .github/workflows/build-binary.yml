@@ -1,8 +1,6 @@
 name: Build Binary
 
 on:
-  push:
-    branches: [ gh-action-test ]
   pull_request:
     branches: [ main ]
   release:
