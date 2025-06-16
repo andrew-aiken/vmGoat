@@ -91,9 +91,7 @@ jobs:
         # Combine existing release body with Docker information
         # Ensure there's a blank line between existing content and new content
         if [ -n "$RELEASE_BODY" ]; then
-          FULL_BODY="${RELEASE_BODY}\n\n
-          
-$(cat "$DOCKER_INFO")"
+          FULL_BODY="${RELEASE_BODY}\n\n$(cat "$DOCKER_INFO")"
         else
           FULL_BODY="$(cat "$DOCKER_INFO")"
         fi
