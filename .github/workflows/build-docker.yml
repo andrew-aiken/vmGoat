@@ -14,7 +14,7 @@ jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -61,3 +61,28 @@ jobs:
         provenance: false
       env:
         SOURCE_DATE_EPOCH: 0
+
+    - name: Update release with Docker image information
+      if: github.event_name == 'release'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Get the current release body
+        RELEASE_BODY=$(gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }} --jq .body)
+        
+        # Prepare Docker image information
+        DOCKER_INFO="## Docker Images\n\nPull the image using:\n\`\`\`bash\n"
+        # Add each tag from metadata
+        echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
+          DOCKER_INFO="${DOCKER_INFO}docker pull ${tag}\n"
+        done
+        DOCKER_INFO="${DOCKER_INFO}\`\`\`\n\nSupported architectures: linux/amd64, linux/arm64"
+        
+        # Combine existing release body with Docker information
+        FULL_BODY="${RELEASE_BODY}\n\n${DOCKER_INFO}"
+        
+        # Update the release
+        gh api \
+          --method PATCH \
+          repos/${{ github.repository }}/releases/${{ github.event.release.id }} \
+          -f body="${FULL_BODY}"
