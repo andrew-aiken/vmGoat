@@ -1,5 +1,5 @@
 output "entrypoint" {
-  value       = "Entrypoint ${aws_instance.this.public_ip}"
+  value       = aws_instance.this.public_ip
   sensitive   = true
   description = "Entrypoint for the scenario"
 }
