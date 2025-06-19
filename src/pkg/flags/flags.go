@@ -61,7 +61,6 @@ var (
 		Value:    false,
 		Required: false,
 		OnlyOnce: true,
-		Sources:  cli.EnvVars("VMGOAT_LOCAL"),
 		Usage:    "Run the deployment applications in a containerized environment",
 	}
 
