@@ -4,7 +4,7 @@
 ![GitHub Repo stars](https://img.shields.io/github/stars/andrew-aiken/vmGoat)
 
 
-vmGoat is a project to deploy cyber security scenarios on cloud infrastructure.
+VMGoat is a project that deploys cyber security scenarios on cloud infrastructure.
 
 - [Install](#install)
 - [Scenarios](#scenarios)
@@ -13,10 +13,10 @@ vmGoat is a project to deploy cyber security scenarios on cloud infrastructure.
 > [!WARNING]
 > Never use production cloud credentials when using this tool!
 > 
-> This projects attempts to minimize the blast radius of malicious scenarios though containerization and code review. But your encouraged to review all code that you run.
+> This project attempts to minimize the blast radius of malicious scenarios through containerization and code review. But you are encouraged to review all code that you run.
 
-This project will deploy one ore more virtual machines to a cloud provider (AWS) and then run Ansible against it to create a custom challenge.
-I created this project because I originally wanted to publish a [TryHackMe](https://tryhackme.com/) room but my original scenario has not been reviewed over a year after submitting it.
+This project will deploy one or more virtual machines to a cloud provider (AWS) and then run Ansible against it to create a custom challenge.
+I created this project because I originally wanted to publish a [TryHackMe](https://tryhackme.com/), room but my original scenario has not been reviewed over a year after I submitted it.
 
 This project is **not** for deploying insecure cloud resources (check out [CloudGoat](https://github.com/RhinoSecurityLabs/cloudgoat/) for that), but instead for configuring virtual environments.
 
@@ -50,7 +50,7 @@ sh ./install.sh
 ```
 
 ### Running from Scratch
-In addition to the local dependencies you will also need [Golang](https://go.dev/) installed.
+In addition to the local dependencies, you will also need [Golang](https://go.dev/) installed.
 By default, the binary attempts to run inside a container built by GitHub CI.
 To run it directly on your local machine, be sure to include the `--local` flag.
 
@@ -77,12 +77,12 @@ docker run --rm -it --entrypoint bash \
     ghcr.io/andrew-aiken/vmgoat:latest
 ```
 
-Then run all commands like you normally would except run the binary from `/vmGoat`
-The settings will get persisted across deployments of the container.
+Then run all commands like you normally would except run the binary from `/vmGoat` and with the `--local` flag.
+The settings will persist across deployments of the container.
 
 ## Scenarios
 
 ### [GitOops](scenarios/gitoops/README.md)
 Difficulty: 7/10
 
-In this scenario you discover a unprotected version control system, then using the new access discover a misconfiguration in a continuous deployment system that leads to privileged command execution.
+In this scenario you discover an unprotected version control system, then using the new access discover a misconfiguration in a continuous deployment system that leads to privileged command execution.
