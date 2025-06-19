@@ -73,9 +73,22 @@ func ConfigAllowlist(ctx context.Context, cli *cli.Command) error {
 	// Query the user for IP addresses to allowlist if none are provided
 	if cli.Args().Len() == 0 {
 		log.Info().Msg("No IPv4 addresses provided, automatically pulling IP from ifconfig.me")
-		res, err := http.Get("https://ifconfig.me/ip")
+		req, err := http.NewRequest("GET", "https://ifconfig.me/ip", nil)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to fetch IP from ifconfig.me")
+			log.Error().Err(err).Msg("Failed to create request for ifconfig.me")
+			return err
+		}
+		// Force IPv4 by setting the "Host" header and using a custom Dialer
+		client := &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return net.Dial("tcp4", addr)
+				},
+			},
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to fetch IP from ifconfig.me (IPv4)")
 			return err
 		}
 
