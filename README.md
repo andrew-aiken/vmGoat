@@ -77,7 +77,7 @@ docker run --rm -it --entrypoint bash \
     ghcr.io/andrew-aiken/vmgoat:latest
 ```
 
-Then run all commands like you normally would except run the binary from `/vmGoat`
+Then run all commands like you normally would except run the binary from `/vmGoat` and with the `--local` flag.
 The settings will get persisted across deployments of the container.
 
 ## Scenarios
