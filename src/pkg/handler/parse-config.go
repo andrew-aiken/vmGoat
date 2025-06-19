@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/andrew-aiken/vmGoat/pkg/types"
 	"github.com/rs/zerolog/log"
-	"infrasec.sh/vmGoat/pkg/types"
 )
 
 // Read the configuration and resolve differences in values

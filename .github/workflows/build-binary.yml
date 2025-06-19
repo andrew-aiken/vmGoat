@@ -36,7 +36,13 @@ jobs:
     - name: Build binary
       working-directory: ./src
       run: |
-        GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o ../bin/vmGoat-${{ matrix.os }}-${{ matrix.arch }} ./cmd/vmGoat
+        go build \
+        -o ../bin/vmGoat-${{ matrix.os }}-${{ matrix.arch }} \
+        -ldflags="-X main.Version=${{ github.event.release.tag_name || '0.0.0-dev' }}" \
+        ./cmd/vmGoat
+      env:
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }} 
     
     - name: Upload binary artifact
       if: github.event_name == 'release'

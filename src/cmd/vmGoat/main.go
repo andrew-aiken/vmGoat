@@ -8,15 +8,15 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"infrasec.sh/vmGoat/pkg/cmd"
-	"infrasec.sh/vmGoat/pkg/flags"
-	"infrasec.sh/vmGoat/pkg/handler"
-	"infrasec.sh/vmGoat/pkg/logger"
+	"github.com/andrew-aiken/vmGoat/pkg/cmd"
+	"github.com/andrew-aiken/vmGoat/pkg/flags"
+	"github.com/andrew-aiken/vmGoat/pkg/handler"
+	"github.com/andrew-aiken/vmGoat/pkg/logger"
 )
 
 var (
 	ProjectName = "vmGoat"
-	Version     = "0.0.1"
+	Version     = "0.0.0-undefined"
 )
 
 func main() {

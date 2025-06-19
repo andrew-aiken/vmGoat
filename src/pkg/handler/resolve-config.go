@@ -3,7 +3,7 @@ package handler
 import (
 	"fmt"
 
-	"infrasec.sh/vmGoat/pkg/logger"
+	"github.com/andrew-aiken/vmGoat/pkg/logger"
 )
 
 // ResolveConfigValue handles the resolution of a value from command line flags, falling back to config,

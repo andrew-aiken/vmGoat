@@ -24,9 +24,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v3"
 
-	"infrasec.sh/vmGoat/pkg/handler"
-	"infrasec.sh/vmGoat/pkg/logger"
-	"infrasec.sh/vmGoat/pkg/types"
+	"github.com/andrew-aiken/vmGoat/pkg/handler"
+	"github.com/andrew-aiken/vmGoat/pkg/logger"
+	"github.com/andrew-aiken/vmGoat/pkg/types"
 )
 
 // Create handles the create command

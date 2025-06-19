@@ -10,9 +10,9 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"infrasec.sh/vmGoat/pkg/handler"
-	"infrasec.sh/vmGoat/pkg/logger"
-	"infrasec.sh/vmGoat/pkg/types"
+	"github.com/andrew-aiken/vmGoat/pkg/handler"
+	"github.com/andrew-aiken/vmGoat/pkg/logger"
+	"github.com/andrew-aiken/vmGoat/pkg/types"
 )
 
 // Purge handles the purge command

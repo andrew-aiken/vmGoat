@@ -1,6 +1,6 @@
-module infrasec.sh/vmGoat
+module github.com/andrew-aiken/vmGoat
 
-go 1.24.2
+go 1.24.4
 
 require (
 	github.com/apenella/go-ansible/v2 v2.2.0

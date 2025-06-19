@@ -13,8 +13,10 @@ func LaunchContainerizedVersion(ctx context.Context, cli *cli.Command, homeDir s
 
 	containerName := cli.Root().Name
 
+	imageUri := fmt.Sprintf("ghcr.io/andrew-aiken/vmgoat:%s", cli.Root().Version)
+
 	err := LaunchContainer(ctx, ContainerConfig{
-		Image:      "ghcr.io/andrew-aiken/vmgoat:latest",
+		Image:      imageUri,
 		Name:       containerName,
 		Entrypoint: []string{"/vmGoat"},
 		Args:       append(cli.Root().Args().Slice(), "--containerized", "--auto-approve"),

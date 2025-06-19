@@ -50,6 +50,8 @@ jobs:
         context: .
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
+        build-args: |
+          VERSION=${{ github.event.release.tag_name || '0.0.0-dev' }}
         labels: |
           org.opencontainers.image.title=VMGoat
           org.opencontainers.image.description=VMGoat is a tool for deploying security scenarios in virtual machines.

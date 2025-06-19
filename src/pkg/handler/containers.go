@@ -12,7 +12,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
-	"infrasec.sh/vmGoat/pkg/logger"
+	"github.com/andrew-aiken/vmGoat/pkg/logger"
 )
 
 // ContainerRuntime represents a supported container runtime
