@@ -18,7 +18,7 @@ provider "aws" {
       scenario  = "test"
       source    = "mvGoat"
       terraform = "true"
-      url       = "github.com/XXX" # TODO: Update with your repo URL
+      url       = "https://github.com/andrew-aiken/vmGoat"
     }
   }
 }

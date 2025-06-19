@@ -6,7 +6,7 @@
       --password {{ gitea_password }}
       --admin
       --config /etc/gitea/gitea.ini
-      --email {{ gitea_username }}@gitoops.thm
+      --email {{ gitea_username }}@gitoops.local
       --must-change-password=false
   failed_when: result.rc != 0 and "user already exists" not in result.stderr
   register: result
@@ -186,7 +186,7 @@
     headers:
       Content-Type: "application/json"
     body:
-      email: "atlantis@gitoops.thm"
+      email: "atlantis@gitoops.local"
       full_name: "{{ gitea_atlantis_username }}"
       login_name: "{{ gitea_atlantis_username }}"
       must_change_password: false
@@ -225,7 +225,7 @@
     headers:
       Content-Type: "application/json"
     body:
-      email: "{{ gitea_user_username }}@gitoops.thm"
+      email: "{{ gitea_user_username }}@gitoops.local"
       full_name: "{{ gitea_user_username }}"
       login_name: "{{ gitea_user_username }}"
       must_change_password: false

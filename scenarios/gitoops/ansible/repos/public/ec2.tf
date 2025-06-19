@@ -1,6 +1,6 @@
 resource "aws_security_group" "gitoops" {
   name        = "gitoops"
-  description = "Allow traffic to thm gitoops server"
+  description = "Allow traffic to vmGoat gitoops server"
   vpc_id      = data.aws_vpc.vpc.id
 
   ingress {

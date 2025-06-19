@@ -3,7 +3,7 @@ terraform {
 
   backend "s3" {
     bucket = "cloudformation-examples"
-    key    = "thm/gitoops/terraform.tfstate"
+    key    = "vmGoat/gitoops/terraform.tfstate"
     region = "us-east-1"
   }
 

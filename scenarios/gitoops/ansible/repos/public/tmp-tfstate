@@ -133,7 +133,7 @@
             "id": "Z082347525N0U4KNV001M",
             "linked_service_description": null,
             "linked_service_principal": null,
-            "name": "gitoops.thm",
+            "name": "gitoops.local",
             "name_servers": [
               "ns-1616.awsdns-10.co.uk",
               "ns-388.awsdns-48.com",
@@ -176,7 +176,7 @@
               {
                 "name": "tag:Name",
                 "values": [
-                  "thm"
+                  "vmGoat"
                 ]
               }
             ],
@@ -191,7 +191,7 @@
             "private_dns_hostname_type_on_launch": "ip-name",
             "state": "available",
             "tags": {
-              "Name": "thm"
+              "Name": "vmGoat"
             },
             "timeouts": null,
             "vpc_id": "vpc-04836164a33a3b273"
@@ -227,7 +227,7 @@
               {
                 "name": "tag:Name",
                 "values": [
-                  "thm"
+                  "vmGoat"
                 ]
               }
             ],
@@ -239,7 +239,7 @@
             "owner_id": "0123456789",
             "state": null,
             "tags": {
-              "Name": "thm"
+              "Name": "vmGoat"
             },
             "timeouts": null
           },
@@ -439,14 +439,14 @@
             "allow_overwrite": null,
             "cidr_routing_policy": [],
             "failover_routing_policy": [],
-            "fqdn": "gitoops.thm",
+            "fqdn": "gitoops.local",
             "geolocation_routing_policy": [],
             "geoproximity_routing_policy": [],
             "health_check_id": "",
-            "id": "Z082347525N0U4KNV001M_gitoops.thm_A",
+            "id": "Z082347525N0U4KNV001M_gitoops.local_A",
             "latency_routing_policy": [],
             "multivalue_answer_routing_policy": false,
-            "name": "gitoops.thm",
+            "name": "gitoops.local",
             "records": [
               "54.80.176.18"
             ],
@@ -482,7 +482,7 @@
           "schema_version": 1,
           "attributes": {
             "arn": "arn:aws:ec2:us-east-1:0123456789:security-group/sg-0b9913296bc457ed0",
-            "description": "Allow traffic to thm gitoops server",
+            "description": "Allow traffic to vmGoat gitoops server",
             "egress": [
               {
                 "cidr_blocks": [
