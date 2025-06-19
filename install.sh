@@ -7,13 +7,6 @@ GITHUB_REPO="andrew-aiken/vmGoat"
 RELEASE_TAG="latest"
 BINARY_NAME="vmGoat"
 
-# Print colored output
-print_message() {
-    local color_code="$1"
-    local message="$2"
-    echo "\033[${color_code}m${message}\033[0m"
-}
-
 # Detect OS
 detect_os() {
     case "$(uname -s)" in
@@ -37,24 +30,17 @@ OS=$(detect_os)
 ARCH=$(detect_arch)
 
 if [ "$OS" = "unknown" ] || [ "$ARCH" = "unknown" ]; then
-    print_message "31" "Error: Unsupported operating system or architecture."
-    print_message "31" "OS: $(uname -s), Architecture: $(uname -m)"
+    echo "Error: Unsupported operating system or architecture."
+    echo "OS: $(uname -s), Architecture: $(uname -m)"
     exit 1
 fi
 
 DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/${BINARY_NAME}-${OS}-${ARCH}"
 
-print_message "36" "Downloading VMGoat binary for ${OS}-${ARCH}..."
-if command -v curl >/dev/null 2>&1; then
-    curl -s -L -o "${BINARY_NAME}" "${DOWNLOAD_URL}" 2>/dev/null
-elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "${BINARY_NAME}" "${DOWNLOAD_URL}" 2>/dev/null
-else
-    print_message "31" "Error: Neither curl nor wget found. Please install one of them and try again."
-    exit 1
-fi
+echo "Downloading VMGoat binary for ${OS}-${ARCH}..."
 
-# Make the binary executable
+curl -s -L -o "${BINARY_NAME}" "${DOWNLOAD_URL}" 2>/dev/null
+
 chmod +x "${BINARY_NAME}"
 
-print_message "36" "Installation complete! Run './vmGoat --help' to get started."
+echo "Installation complete! Run './vmGoat --help' to get started."
