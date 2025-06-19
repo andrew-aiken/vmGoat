@@ -63,6 +63,6 @@
     mode: '0400'
     owner: "{{ linux_username }}"
     group: "{{ linux_username }}"
-    content: "{{ 'THM{' + user_flag + '}' }}"
+    content: "{{ 'vmGoat{' + user_flag + '}' }}"
   tags:
     - non_root_user
