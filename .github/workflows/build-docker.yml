@@ -3,6 +3,11 @@ name: Build Docker Image
 on:
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/build-docker.yml'
   release:
     types: [ published ]
 

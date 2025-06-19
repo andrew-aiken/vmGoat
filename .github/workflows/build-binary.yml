@@ -3,6 +3,9 @@ name: Build Binary
 on:
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/build-binary.yml'
   release:
     types: [ published ]
 
