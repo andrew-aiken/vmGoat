@@ -59,3 +59,14 @@ type CliInputs struct {
 	AwsProfile string
 	AwsRegion  string
 }
+
+// GitHubRelease represents a GitHub release
+type GitHubRelease struct {
+	TagName    string `json:"tag_name"`
+	Name       string `json:"name"`
+	PreRelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+}
