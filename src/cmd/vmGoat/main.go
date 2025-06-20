@@ -137,6 +137,14 @@ func main() {
 					},
 				},
 			},
+			{
+				Name:   "update",
+				Usage:  "Update the vmGoat CLI",
+				Action: cmd.Update,
+				Flags: []cli.Flag{
+					flags.AutoApprove,
+				},
+			},
 		},
 		Flags: []cli.Flag{
 			flags.Containerized,
