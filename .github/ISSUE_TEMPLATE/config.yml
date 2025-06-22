@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: vmGoat Documentation
+    url: https://github.com/andrew-aiken/vmGoat#readme
+    about: Check the documentation before submitting an issue
+  - name: Security Vulnerability
+    url: https://github.com/andrew-aiken/vmGoat/security/policy
+    about: Please report security vulnerabilities here
