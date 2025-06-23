@@ -15,7 +15,7 @@
           "schema_version": 0,
           "attributes": {
             "architecture": "x86_64",
-            "arn": "arn:aws:ec2:us-east-1::image/ami-0655cec52acf2717b",
+            "arn": "arn:aws:ec2:${AWS_REGION}::image/ami-0655cec52acf2717b",
             "block_device_mappings": [
               {
                 "device_name": "/dev/sda1",
@@ -160,9 +160,9 @@
         {
           "schema_version": 0,
           "attributes": {
-            "arn": "arn:aws:ec2:us-east-1:0123456789:subnet/subnet-098198512d814b738",
+            "arn": "arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:subnet/subnet-098198512d814b738",
             "assign_ipv6_address_on_creation": false,
-            "availability_zone": "us-east-1a",
+            "availability_zone": "${AWS_REGION}a",
             "availability_zone_id": "use1-az6",
             "available_ip_address_count": 250,
             "cidr_block": "10.1.0.0/24",
@@ -187,7 +187,7 @@
             "map_customer_owned_ip_on_launch": false,
             "map_public_ip_on_launch": false,
             "outpost_arn": "",
-            "owner_id": "0123456789",
+            "owner_id": "${ACCOUNT_ID}",
             "private_dns_hostname_type_on_launch": "ip-name",
             "state": "available",
             "tags": {
@@ -209,7 +209,7 @@
         {
           "schema_version": 0,
           "attributes": {
-            "arn": "arn:aws:ec2:us-east-1:0123456789:vpc/vpc-04836164a33a3b273",
+            "arn": "arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:vpc/vpc-04836164a33a3b273",
             "cidr_block": "10.1.0.0/16",
             "cidr_block_associations": [
               {
@@ -236,7 +236,7 @@
             "ipv6_association_id": "",
             "ipv6_cidr_block": "",
             "main_route_table_id": "rtb-0c15b3900656a4ad0",
-            "owner_id": "0123456789",
+            "owner_id": "${ACCOUNT_ID}",
             "state": null,
             "tags": {
               "Name": "vmGoat"
@@ -257,9 +257,9 @@
           "schema_version": 1,
           "attributes": {
             "ami": "ami-0655cec52acf2717b",
-            "arn": "arn:aws:ec2:us-east-1:0123456789:instance/i-0fdb819ee7502c154",
+            "arn": "arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:instance/i-0fdb819ee7502c154",
             "associate_public_ip_address": true,
-            "availability_zone": "us-east-1a",
+            "availability_zone": "${AWS_REGION}a",
             "capacity_reservation_specification": [
               {
                 "capacity_reservation_preference": "open",
@@ -337,7 +337,7 @@
             ],
             "private_ip": "10.1.0.123",
             "public_dns": "",
-            "public_ip": "54.80.176.18",
+            "public_ip": "1.1.1.1",
             "root_block_device": [
               {
                 "delete_on_termination": true,
@@ -404,7 +404,7 @@
         {
           "schema_version": 1,
           "attributes": {
-            "arn": "arn:aws:ec2:us-east-1:0123456789:key-pair/gitoops",
+            "arn": "arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:key-pair/gitoops",
             "fingerprint": "e9:17:f4:4d:be:7d:36:5a:c1:c0:31:ab:b4:ff:6a:7e",
             "id": "gitoops",
             "key_name": "gitoops",
@@ -448,7 +448,7 @@
             "multivalue_answer_routing_policy": false,
             "name": "gitoops.local",
             "records": [
-              "54.80.176.18"
+              "1.1.1.1"
             ],
             "set_identifier": "",
             "timeouts": null,
@@ -481,7 +481,7 @@
         {
           "schema_version": 1,
           "attributes": {
-            "arn": "arn:aws:ec2:us-east-1:0123456789:security-group/sg-0b9913296bc457ed0",
+            "arn": "arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:security-group/sg-0b9913296bc457ed0",
             "description": "Allow traffic to vmGoat gitoops server",
             "egress": [
               {
@@ -544,7 +544,7 @@
             ],
             "name": "gitoops",
             "name_prefix": "",
-            "owner_id": "0123456789",
+            "owner_id": "${ACCOUNT_ID}",
             "revoke_rules_on_delete": false,
             "tags": {
               "Name": "gitoops"

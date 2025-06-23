@@ -2,8 +2,8 @@ terraform {
   required_version = "1.11.4"
 
   backend "s3" {
-    bucket = "cloudformation-examples"
-    key    = "vmGoat/gitoops/terraform.tfstate"
+    bucket = "{{ BUCKET_NAME }}"
+    key    = "gitcorp/terraform.tfstate"
     region = "us-east-1"
   }
 

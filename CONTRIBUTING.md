@@ -56,8 +56,6 @@ Optional additional context or background information.
 
 ## Terraform Standards
 
-Keep configuration out of of Terraform (i.e. user data)
-
 ### Required Files
 
 1. **settings.tf** - Provider configuration and version constraints
