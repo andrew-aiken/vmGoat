@@ -272,7 +272,7 @@
         email: "{{ gitea_user_username }}@{{ gitea_domain }}",
         name: "{{ gitea_user_username }}"
       }
-      content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/tmp-tfstate') | b64encode }}"
+      content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/local.tfstate') | b64encode }}"
     body_format: json
     return_content: true
     status_code: 201
@@ -409,6 +409,23 @@
         - gitea_oneoffs
         - gitea_files
 
+    - name: Read the /vars.env file
+      ansible.builtin.slurp:
+        src: /vars.env
+      register: vars_env_file_content
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
+    - name: Parse environment variables from the vars.env file
+      ansible.builtin.set_fact:
+        env_vars: "{{ vars_env_file_content['content'] | b64decode | regex_findall('([^=]+)=(.*)') | items2dict(key_name=0, value_name=1) }}"
+      tags:
+        - gitea
+        - gitea_oneoffs
+        - gitea_files
+
     - name: Commit updated settings.tf file
       ansible.builtin.uri:
         url: "http://localhost:3000/api/v1/repos/{{ gitea_org_name }}/{{ gitea_repo }}/contents/settings.tf"
@@ -427,7 +444,7 @@
             email: "{{ gitea_user_username }}@{{ gitea_domain }}",
             name: "{{ gitea_user_username }}"
           }
-          content: "{{ lookup('ansible.builtin.file', 'repos/{{ gitea_repo }}/settings.tf.txt') | b64encode }}"
+          content: "{{ lookup('ansible.builtin.template', 'repos/{{ gitea_repo }}/settings.tf.txt', template_vars=env_vars) | b64encode }}"
           message: "Update backend to use S3"
           sha: "{{ (settings_file_sha.json.sha) }}"
         body_format: json

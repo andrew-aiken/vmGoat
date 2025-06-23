@@ -14,6 +14,11 @@ resource "aws_instance" "this" {
     data.aws_security_group.this.id
   ]
 
+  user_data = <<-EOF
+    #!/bin/bash
+    echo 'BUCKET_NAME=${aws_s3_bucket.this.bucket}' > /vars.env
+  EOF
+
   tags = {
     Name = "GitOops"
   }

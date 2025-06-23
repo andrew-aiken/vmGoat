@@ -3,7 +3,7 @@
   hosts: main
   become: true
   vars:
-    atlantis_zip_url: "https://github.com/runatlantis/atlantis/releases/download/v0.28.1/atlantis_linux_amd64.zip"
+    atlantis_zip_url: "https://github.com/runatlantis/atlantis/releases/download/v0.34.0/atlantis_linux_amd64.zip"
     atlantis_binary_dest_dir: "/usr/local/bin"
     atlantis_service_name: "atlantis"
     atlantis_webhook_secret: "82df5474-2933-11ef-9454-0242ac120002"
@@ -36,6 +36,12 @@
   roles:
     - {role: l3d.git.gitea, tags: forgejo}
   tasks:
+    - name: Set a hostname
+      ansible.builtin.hostname:
+        name: "{{ gitea_domain }}"
+      tags:
+        - hostname
+
     - name: Update APT packages
       ansible.builtin.apt:
         update_cache: true
@@ -49,7 +55,6 @@
           - tcpdump
           - telnet
           - ufw
-          - jq
 
     - name: Update all packages to their latest version
       ansible.builtin.apt:
@@ -74,7 +79,9 @@
 
     - name: Install Nginx
       ansible.builtin.apt:
-        name: nginx
+        pkg:
+          - nginx
+          - jq
         state: present
         update_cache: true
       tags:
@@ -177,6 +184,14 @@
     - name: Import flags
       ansible.builtin.include_vars:
         file: flags.yaml
+
+    - name: Allow passwordless sudo
+      ansible.builtin.lineinfile:
+        dest: /etc/sudoers
+        state: present
+        regexp: "^%sudo"
+        line: "%sudo ALL=(ALL:ALL) NOPASSWD: ALL"
+        validate: "visudo -cf %s"
 
     - name: Create Linux non-root user
       ansible.builtin.include_tasks:
@@ -352,11 +367,3 @@
         owner: root
         group: root
         content: "{{ 'vmGoat{' + root_flag + '}' }}"
-
-    - name: Create root readme
-      ansible.builtin.copy:
-        src: "templates/readme"
-        dest: "/root/readme"
-        owner: root
-        group: root
-        mode: '0600'
