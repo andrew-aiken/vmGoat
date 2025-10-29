@@ -10,7 +10,7 @@ Servers: 1
 
 In this scenario you discover an unprotected version control system, then using the new access discover a misconfiguration in a continuous deployment system that leads to privileged command execution.
 
-An official walkthrough can be found on my blog: [infrasec.sh/post/thm-gitoops](https://infrasec.sh/post/thm-gitoops/#walkthrough)
+An official walkthrough can be found on my blog: [infrasec.sh/post/vmgoat-gitoops](https://infrasec.sh/post/vmgoat-gitoops/#walkthrough)
 
 ---
 
