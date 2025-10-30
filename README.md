@@ -59,7 +59,7 @@ git clone git@github.com:andrew-aiken/vmGoat.git
 
 cd vmGoat
 
-go build -o vmGoat cmd/vmGoat/main.go
+go build -C src -o ../vmGoat cmd/vmGoat/main.go
 ./vmGoat create --local XYZ
 ```
 

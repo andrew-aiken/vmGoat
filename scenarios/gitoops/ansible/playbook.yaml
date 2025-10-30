@@ -222,9 +222,9 @@
             force_basic_auth: true
             body_format: json
             return_content: true
-            status_code: 204
-          failed_when: result.status not in [204, 404] or (result.status == 404 and "The target couldn't be found" not in result.json.message)
-          register: result
+            status_code:
+              - 204
+              - 404
 
         - name: Create access token
           ansible.builtin.uri:
