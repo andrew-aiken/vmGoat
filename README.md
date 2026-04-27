@@ -69,7 +69,7 @@ go build -C src -o ../vmGoat cmd/vmGoat/main.go
 ```bash
 docker volume create vmGoat
 
-docker run --rm -it --entrypoint bash \
+docker run --rm -it --entrypoint sh \
     -v vmGoat:/.config/vmGoat/ \
     -v $HOME/.aws:/root/.aws/:ro \
     --workdir /mnt/ \
