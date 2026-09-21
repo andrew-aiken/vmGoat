@@ -7,10 +7,9 @@ import (
 	"os"
 
 	"github.com/containerd/errdefs"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"github.com/andrew-aiken/vmGoat/pkg/logger"
 )
@@ -64,7 +63,7 @@ func (d *DockerContainer) PullImage(ctx context.Context, imageName string) error
 	log.Info().Str("image", imageName).Msg("Pulling Docker image")
 
 	// Pull the image
-	reader, err := d.client.ImagePull(ctx, imageName, image.PullOptions{})
+	reader, err := d.client.ImagePull(ctx, imageName, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %v", err)
 	}
@@ -132,20 +131,17 @@ func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) er
 	}
 
 	// Create the container
-	resp, err := d.client.ContainerCreate(
-		ctx,
-		containerConfig,
-		hostConfig,
-		nil,
-		nil,
-		config.Name,
-	)
+	resp, err := d.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:     containerConfig,
+		HostConfig: hostConfig,
+		Name:       config.Name,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create container: %v", err)
 	}
 
 	// Start the container
-	if err := d.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := d.client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %v", err)
 	}
 
@@ -160,19 +156,21 @@ func (d *DockerContainer) Launch(ctx context.Context, config ContainerConfig) er
 // Stop stops a running container
 func (d *DockerContainer) Stop(ctx context.Context, containerID string) error {
 	timeout := 10 // seconds
-	return d.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
+	_, err := d.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout})
+	return err
 }
 
 // Remove removes a container
 func (d *DockerContainer) Remove(ctx context.Context, containerID string) error {
-	return d.client.ContainerRemove(ctx, containerID, container.RemoveOptions{
+	_, err := d.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{
 		Force: true,
 	})
+	return err
 }
 
 // GetLogs retrieves container logs
 func (d *DockerContainer) GetLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
-	return d.client.ContainerLogs(ctx, containerID, container.LogsOptions{
+	return d.client.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -197,13 +195,13 @@ func DeleteContainer(ctx context.Context, containerName string) error {
 	}
 
 	// Get container ID by name
-	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := docker.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return fmt.Errorf("failed to list containers: %v", err)
 	}
 
 	var containerID string
-	for _, container := range containers {
+	for _, container := range containers.Items {
 		for _, name := range container.Names {
 			if name == "/"+containerName {
 				containerID = container.ID
@@ -235,13 +233,13 @@ func GetContainerLogs(ctx context.Context, containerName string) error {
 	}
 
 	// Get container ID by name
-	containers, err := docker.client.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := docker.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return fmt.Errorf("failed to list containers: %v", err)
 	}
 
 	var containerID string
-	for _, container := range containers {
+	for _, container := range containers.Items {
 		for _, name := range container.Names {
 			if name == "/"+containerName {
 				containerID = container.ID
@@ -258,7 +256,7 @@ func GetContainerLogs(ctx context.Context, containerName string) error {
 	}
 
 	// Get logs without timestamps
-	logs, err := docker.client.ContainerLogs(ctx, containerID, container.LogsOptions{
+	logs, err := docker.client.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
